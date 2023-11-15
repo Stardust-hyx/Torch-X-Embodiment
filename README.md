@@ -16,7 +16,6 @@ We provide implementations for the following methods:
 - Normalized movement actions
 - Binarized gripper actions
 - Data augmentation
-- Recommended practice of the latest Pytorch
 - Efficient distributed training based on Deepspeed
 - Support both language-conditioning and visual goal-conditioning
 
