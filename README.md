@@ -86,7 +86,7 @@ deepspeed src/train.py \
     --random_seed 42
 ```
 
-See `src/config.py` for availabel hyperparameters. Model checkpoints will be saved in the `save_dir` along with a `config.json`.
+See `src/config.py` for availabel hyperparameters. Model checkpoints will be saved in the `{save_dir}` along with a `config.json`.
 
 To specify which datasets to use, modify the constant `DATASETS` in `src\config.py`. Currently, we have only experimented on datasets involving Franka default gripper.
 
