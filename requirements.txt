@@ -1,0 +1,5 @@
+torch==2.1.0
+torchvision==0.16.0
+deepspeed==0.10.2
+tfds-nightly
+tensorflow[and-cuda]
