@@ -1,6 +1,6 @@
-# Pytorch Preprocessing and Training for Open X-Embodiment
+# Pytorch Implementation for Open X-Embodiment
 
-This repository provides Pytorch-based preprocessing and training code based on for [Open X-Embodiment](https://github.com/google-deepmind/open_x_embodiment).
+This repository provides preprocessing and training code based on Pytorch for [Open X-Embodiment](https://github.com/google-deepmind/open_x_embodiment).
 
 Since most open-source LLMs are implemented with Pytorch and require highly efficient distributed training frameworks (e.g. [Deepspeed](https://www.deepspeed.ai/getting-started/)) to fine-tune, we believe this repository can facilitate the application of Multimodal LLMs on this field.
 
@@ -105,6 +105,7 @@ python src/demo.py \
 
 The display image is expected to look like:
 ![](demo_viola-test-0.png)
+
 ## Evaluation
 
 TODO
