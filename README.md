@@ -18,7 +18,7 @@ We provide implementations for the following methods:
 - Data augmentation
 - Recommended practice of the latest Pytorch
 - Efficient distributed training based on Deepspeed
-- Support both language-conditioning and vision-conditioning
+- Support both language-conditioning and visual goal-conditioning
 
 ## Environment
 
