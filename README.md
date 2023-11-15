@@ -80,8 +80,8 @@ deepspeed src/train.py \
     --num_workers 4 \
     --augment True \
     --method gc_bc \
-    --steps 300000 \
-    --warmup_steps 10000 \
+    --steps 100000 \
+    --warmup_steps 3000 \
     --save_dir gcbc_aug_save \
     --random_seed 42
 ```
