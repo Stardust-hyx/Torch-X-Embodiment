@@ -149,7 +149,7 @@ def main(_):
 
     plt.legend()
     plt.show()
-    plt.savefig(f'demo_{traj_name}.png')
+    plt.savefig(f'demo_{traj_name}.png', bbox_inches='tight', pad_inches=0.1, dpi=300)
 
 
 if __name__ == "__main__":
