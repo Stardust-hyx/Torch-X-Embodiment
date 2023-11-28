@@ -1,8 +1,12 @@
+from dataclasses import dataclass
 import torch
 import torch.nn as nn
 from torch.distributions import MultivariateNormal
 from utils.misc import get_augment_transform
 
+@dataclass
+class GCBCAgentOutput:
+    pred_dist: MultivariateNormal
 
 class GCBCAgent(nn.Module):
 
@@ -40,7 +44,10 @@ class GCBCAgent(nn.Module):
 
         self.register_buffer("fixed_std", torch.eye(action_dim))
 
-    def forward(self, obs_imgs, goal_imgs):
+    def forward(self, prompts, obs_imgs, goal_imgs, feature_imgs) -> GCBCAgentOutput:
+        obs_imgs = obs_imgs.to(self.fixed_std.device)
+        goal_imgs = goal_imgs.to(self.fixed_std.device)
+
         if self.training and self.augment:
             obs_imgs, goal_imgs = self._augment((obs_imgs, goal_imgs))
         
@@ -51,8 +58,9 @@ class GCBCAgent(nn.Module):
         means = self.action_mean_linear(outputs)
 
         dist = MultivariateNormal(means, scale_tril=self.fixed_std)
-        
-        return dist
+        return GCBCAgentOutput(
+            pred_dist=dist
+        )
     
     def _augment(self, image_tuple):
         images = torch.cat(image_tuple)
@@ -60,9 +68,7 @@ class GCBCAgent(nn.Module):
         return torch.chunk(images, chunks=len(image_tuple))
     
     @torch.no_grad()
-    def sample_actions(self, obs, goal_obs, argmax=True):
-        obs_img = obs["image"]
-        goal_img = goal_obs["image"]
+    def sample_actions(self, obs_img, goal_img, argmax=True):
         if not isinstance(obs_img, torch.Tensor):
             obs_img = torch.tensor(obs_img, device=self.fixed_std.device).unsqueeze_(0)
         else:
@@ -72,7 +78,7 @@ class GCBCAgent(nn.Module):
         else:
             goal_img = goal_img.to(self.fixed_std.device).unsqueeze_(0)
 
-        dist = self.forward(obs_img, goal_img)
+        dist = self.forward(None, obs_img, goal_img, None).pred_dist
 
         if argmax:
             actions = dist.mode

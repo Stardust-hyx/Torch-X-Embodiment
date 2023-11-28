@@ -97,7 +97,10 @@ class XEmbodDatasetTorch(IterableDataset):
         self.is_train = is_train
 
         self.goal_relabeling_strategy = args.goal_relabeling_strategy
-        self.goal_relabel_min_offset = args.goal_relabel_min_offset
+        self.goal_relabel_offset = args.goal_relabel_offset
+        self.goal_relabel_future_step = args.goal_relabel_future_step
+
+        self.prompt_template = args.all_prompts[args.prompt_type]
 
         datasets = args.datasets
         dataset_paths = [os.path.join(args.data_dir, x) for x in datasets]
@@ -178,17 +181,12 @@ class XEmbodDatasetTorch(IterableDataset):
 
             ds_name = data_filename.split('/')[-1].split('-')[0]
             traj = self.process_traj(traj, ds_name)
-            instruction, obs_imgs, goal_imgs, actions = self.convert_traj_to_samples(traj)
-            # if self.is_train and self.augment:
-            #     obs_imgs, goal_imgs = self._augment((obs_imgs, goal_imgs))
+            prompt, obs_images, goal_images, future_images, actions = self.convert_traj_to_samples(traj)
 
-            for obs_img, goal_img, action in zip(
-                obs_imgs, goal_imgs, actions
+            for obs_img, goal_img, future_img, action in zip(
+                obs_images, goal_images, future_images, actions
             ):
-                # if self.is_train and self.augment:
-                #     obs_img, goal_img = self._augment((obs_img, goal_img))
-
-                yield instruction, obs_img, goal_img, action
+                yield prompt, obs_img, goal_img, future_img, action
 
     def shuffle(self, seed):
         rng = np.random.default_rng(seed)
@@ -210,15 +208,16 @@ class XEmbodDatasetTorch(IterableDataset):
         assert len(traj['obs_images']) == len(traj['movement_actions']) + 1
         traj = self._process_actions(traj, ds_name)
         traj = self._add_goals(traj)
-        # traj['obs_images'] = traj['obs_images'][:-1]
+        traj = self._construct_prompt(traj)
         return traj
     
     def convert_traj_to_samples(self, traj):
-        instruction = traj["instruction"]
+        prompt = traj["prompt"]
         obs_images = traj["obs_images"][:-1]
         goal_images = traj["goal_images"]
+        future_images = traj["future_images"]
         actions = traj["actions"]
-        return instruction, obs_images, goal_images, actions
+        return prompt, obs_images, goal_images, future_images, actions
     
     def _process_actions(self, traj, ds_name):
         """ adding field 'actions' to traj """
@@ -237,8 +236,18 @@ class XEmbodDatasetTorch(IterableDataset):
     def _add_goals(self, traj):
         """ adding field 'goal_images' to traj """
         traj = GOAL_RELABELING_FUNCTIONS[self.goal_relabeling_strategy](
-            traj, self.goal_relabel_min_offset
+            traj, self.goal_relabel_offset, self.goal_relabel_future_step
         )
-
         return traj
     
+    def _construct_prompt(self, traj):
+        """ adding field 'prompt' to traj """
+        info = {
+            "robot_type": traj["robot_and_gripper"][0],
+            "gripper_type": traj["robot_and_gripper"][1],
+            "instruct": traj["instruction"],
+            "img": self.args.img_placeholder,
+            "act": self.args.act_placeholder,
+        }
+        traj["prompt"] = self.prompt_template.format(**info)
+        return traj

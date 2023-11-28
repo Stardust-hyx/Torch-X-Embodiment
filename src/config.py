@@ -6,6 +6,10 @@ DATASETS = [
     "toto"
 ]
 
+ALL_PROMPTS = {
+    "emu_default": "You are a {robot_type} robot, observing that {img}. Your task is to {instruct}, as shown in {img}. You take action {act} and reach the state {img}",
+}
+
 AUGMENT_KWARGS = dict(
     random_resized_crop=dict(
         size=[224, 224],
@@ -33,6 +37,33 @@ GCBC_ENCODER_KWARGS = dict(
     input_channels=6
 )
 
+# same as src/agents/Emu/Emu-14B.json
+EMU_KWARGS = {
+    "embed_dim": 1024,
+    "vision_cfg": {
+        "image_size": 224,
+        "layers": 40,
+        "width": 1408,
+        "head_width": 88,
+        "mlp_ratio": 4.3637,
+        "patch_size": 14,
+        "eva_model_name": "eva-clip-g-14-x",
+        "drop_path_rate": 0,
+        "xattn": True,
+        "freeze": False
+    },
+    "multimodal_cfg": {
+        "name": "llama-13B",
+        "xattn": True,
+        "n_causal": 32,
+        "freeze": False
+    },
+    "vladapter_cfg": {
+        "name": "cformer",
+        "n_causal": 32
+    }
+}
+
 def get_args():
     def str2bool(v):
         return v.lower() in ('true')
@@ -47,12 +78,20 @@ def get_args():
     data_arg.add_argument('--num_workers', type=int, default=4)
     data_arg.add_argument('--relabel_actions', type=str2bool, default=True)
     data_arg.add_argument('--goal_relabeling_strategy', type=str, default='uniform')
-    data_arg.add_argument('--goal_relabel_min_offset', type=int, default=1)
+    data_arg.add_argument('--goal_relabel_offset', type=int, default=1)
+    data_arg.add_argument('--goal_relabel_future_step', type=int, default=4)
     data_arg.add_argument('--augment', type=str2bool, default=True)
+    data_arg.add_argument('--prompt_type', type=str, default='emu_default')
+    data_arg.add_argument('--img_placeholder', type=str, default='[<IMG_PLH>]')
+    data_arg.add_argument('--act_placeholder', type=str, default='[<ACT_PLH>]')
 
     model_arg = parser.add_argument_group('Model')
     model_arg.add_argument('--dtype', type=str, default='fp32')
+    # for gcbc
     model_arg.add_argument('--encoder', type=str, default='resnetv1-34-bridge')
+    # for emu
+    model_arg.add_argument('--ckpt_path', type=str, default='/home/hyx/huggingface/Emu/pretrain', help="Emu ckpt path")
+    model_arg.add_argument('--instruct', type=str2bool, default=False, help="Load Emu-I")
 
     learn_arg = parser.add_argument_group('Learning')
     learn_arg.add_argument('--save_dir', type=str, default='./save')
@@ -67,7 +106,7 @@ def get_args():
     learn_arg.add_argument('--epochs', type=int, default=None)
     learn_arg.add_argument('--steps', type=int, default=300000)
     learn_arg.add_argument('--warmup_steps', type=int, default=10000)
-    learn_arg.add_argument('--decay_steps', type=int, default=None)
+    learn_arg.add_argument('--decay_steps', type=int, default=300000)
     learn_arg.add_argument('--log_interval', type=int, default=2000)
     learn_arg.add_argument('--eval_interval', type=int, default=5000)
     learn_arg.add_argument('--save_interval', type=int, default=5000)
@@ -83,8 +122,10 @@ def get_args():
         print("Unparsed args: {}".format(unparsed))
 
     args.datasets = DATASETS
+    args.all_prompts = ALL_PROMPTS
     args.augment_kwargs = AUGMENT_KWARGS
     args.gcbc_encoder_kwargs = GCBC_ENCODER_KWARGS
+    args.emu_kwargs = EMU_KWARGS
 
     return args
 
@@ -127,7 +168,16 @@ def get_ds_config(args):
         #     "contiguous_gradients": True,
         #     "overlap_comm": True,
         #     "reduce_scatter": True,
-        # }
+        # },
+        "zero_optimization": {
+            "stage": 3,
+            "offload_optimizer": {
+                "device": "cpu",
+                "pin_memory": True
+            },
+            "overlap_comm": True,
+            "stage3_gather_16bit_weights_on_model_save": True
+        },
     }
 
     return ds_config

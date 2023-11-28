@@ -10,8 +10,7 @@ from config import get_args, get_ds_config
 from utils.misc import set_random_seed
 from utils.criterion import action_criterion
 from data import XEmbodDatasetTorch
-from agents.resnet import resnetv1_configs
-from agents.gc_bc import GCBCAgent
+from agents import resnetv1_configs, GCBCAgent, EmuAgent
 
 
 def evaluate(args, engine: deepspeed.DeepSpeedEngine, eval_dataset, criterion):
@@ -23,13 +22,10 @@ def evaluate(args, engine: deepspeed.DeepSpeedEngine, eval_dataset, criterion):
     log_probs, mse, pi_actions, cnt = 0, 0, 0, 0
     with torch.no_grad():
         for data in eval_dataloader:
-            (instruct, obs_imgs, goal_imgs, actions) = data
+            (prompts, obs_imgs, goal_imgs, feature_imgs, actions) = data
 
-            obs_imgs = obs_imgs.to(engine.device)
-            goal_imgs = goal_imgs.to(engine.device)
+            outputs = engine(prompts, obs_imgs, goal_imgs, feature_imgs)
             actions = actions.to(engine.device)
-
-            outputs = engine(obs_imgs, goal_imgs)
             _, info = criterion(outputs, actions)
 
             log_probs += info['log_probs']
@@ -91,15 +87,12 @@ def train(args, engine: deepspeed.DeepSpeedEngine, criterion, train_dataset, eva
             ):
                 continue
 
-            (instruct, obs_imgs, goal_imgs, actions) = data
-            
-            obs_imgs = obs_imgs.to(engine.device)
-            goal_imgs = goal_imgs.to(engine.device)
-            actions = actions.to(engine.device)
+            (prompts, obs_imgs, goal_imgs, feature_imgs, actions) = data
 
-            outputs = engine(obs_imgs, goal_imgs)
-            loss, info = criterion(outputs, actions)
-            engine.backward(loss)
+            outputs = engine(prompts, obs_imgs, goal_imgs, feature_imgs)
+            actions = actions.to(engine.device)
+            act_loss, info = criterion(outputs.pred_dist, actions)
+            engine.backward(act_loss)
             engine.step()
 
             avg_loss += info['actor_loss']
@@ -197,6 +190,8 @@ if __name__ == '__main__':
     if args.method == 'gc_bc':
         encoder = resnetv1_configs[args.encoder](**args.gcbc_encoder_kwargs)
         agent = GCBCAgent(encoder, args)
+    elif args.method == 'emu':
+        agent = EmuAgent.from_pretrained(args.ckpt_path, args)
     else:
         raise NotImplementedError
 
@@ -224,7 +219,9 @@ if __name__ == '__main__':
         _, client_state = engine.load_checkpoint(args.save_dir, args.ckpt_id)
         start_step = client_state['step']
 
-    # train (and also evaluate periodically)
-    # to skip training and evalute directly, just set args.epochs as 0
-    train(args, engine, criterion, trainset, testset, start_step)
-    
+    if args.steps or args.epochs:
+        # train and also evaluate periodically
+        train(args, engine, criterion, trainset, testset, start_step)
+    elif is_master:
+        print('skip training and evaluate directly...')
+        evaluate(args, engine, testset, criterion)

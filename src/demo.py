@@ -86,11 +86,9 @@ def main(_):
     for i, (image_obs, gold_movement_action, gold_gripper_action) in enumerate(
         zip(images[:-1], gold_movement_actions, gold_gripper_actions)
     ):
-        obs = {"image": image_obs}
-        goal_obs = {"image": image_goal}
 
         action = np.array(
-            agent.sample_actions(obs, goal_obs, argmax=True).squeeze().cpu()
+            agent.sample_actions(image_obs, image_goal, argmax=True).squeeze().cpu()
         )
         
         gold_movement_action = normalize_action(gold_movement_action, move_action_mean, move_action_std)
