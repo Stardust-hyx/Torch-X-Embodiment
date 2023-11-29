@@ -4,11 +4,22 @@ This repository provides preprocessing and training code based on Pytorch for [O
 
 Since most open-source LLMs are implemented with Pytorch and require highly efficient distributed training frameworks (e.g. [Deepspeed](https://www.deepspeed.ai/getting-started/)) to fine-tune, we believe this repository can facilitate the application of Multimodal LLMs on this field.
 
-We provide implementations for the following methods:
+## Schedule
 
-- Visual goal-conditioned BC
-- RT-1 (TODO)
-- A novel generative vision-language-action model (TODO)
+We are activly implementing the following:
+
+- [x] Open X-embodiment data processing
+- [ ] Web image-text datasets processing
+- [x] GCBC baseline
+- [ ] RoboCat baseline
+- [ ] RT-1 baseline
+- [ ] RT-2 baseline
+- [x] Act-Emu w/o diffusion loss
+- [ ] Act-Emu
+- [x] Demo on offline trajectories (for validation)
+- [ ] Evaluation on Language Table
+- [ ] Evaluation on Franka Kitchen
+- [ ] Real-word Evaluation (Franka Panda)
 
 ## Features
 
@@ -112,3 +123,4 @@ TODO
 ## Provided Checkpoints
 
 A visual goal-conditioned BC Checkpoint is available [here](https://drive.google.com/drive/folders/15hXCEUwCbbU3kt4dgTc_dmwrG9Vzy-J0?usp=drive_link).
+
