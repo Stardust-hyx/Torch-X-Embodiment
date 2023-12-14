@@ -12,7 +12,7 @@ We are activly implementing the following:
 - [ ] Web image-text datasets processing
 - [x] GCBC baseline
 - [ ] RoboCat baseline
-- [ ] RT-1 baseline
+- [x] RT-1 baseline
 - [ ] RT-2 baseline
 - [x] Act-Emu w/o diffusion loss
 - [ ] Act-Emu
