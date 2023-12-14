@@ -23,7 +23,7 @@ class CausalFormer(nn.Module):
         super(CausalFormer, self).__init__()
 
         # model_config = T5Config.from_pretrained("t5-base")
-        model_config = T5Config.from_pretrained(os.path.join(args.ckpt_path, "causal_former"))
+        model_config = T5Config.from_pretrained(os.path.join(args.emu_ckpt, "causal_former"))
         model_config.encoder_width = vision_width
 
         lm = T5ForConditionalGeneration(config=model_config)

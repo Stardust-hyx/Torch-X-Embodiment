@@ -3,11 +3,17 @@ import argparse
 DATASETS = [
     "berkeley_cable_routing",
     "viola",
-    "toto"
+    "toto",
+    "stanford_hydra_dataset_converted_externally_to_rlds",
+    "austin_buds_dataset_converted_externally_to_rlds"
 ]
 
 ALL_PROMPTS = {
-    "emu_default": "You are a {robot_type} robot, observing that {img}. Your task is to {instruct}, as shown in {img}. You take action {act} and reach the state {img}",
+    "rt1_default": "{instruct}",
+    "emu_default": "You are a {robot_type} robot, observing {img}. To {instruct}, as shown in {img}, you take action {act} and reach the state {img}",
+    "emu_wo_goal": "You are a {robot_type} robot, observing {img}. To {instruct}, you take action {act} and reach the state {img}",
+    "emu_wo_future": "You are a {robot_type} robot, observing {img}. To {instruct}, as shown in {img}, you take action {act}",
+    "emu_wo_goal_future": "You are a {robot_type} robot, observing {img}. To {instruct}, you take action {act}",
 }
 
 AUGMENT_KWARGS = dict(
@@ -50,18 +56,19 @@ EMU_KWARGS = {
         "eva_model_name": "eva-clip-g-14-x",
         "drop_path_rate": 0,
         "xattn": True,
-        "freeze": False
+        "freeze": True
     },
     "multimodal_cfg": {
         "name": "llama-13B",
         "xattn": True,
         "n_causal": 32,
-        "freeze": False
+        "freeze": True
     },
     "vladapter_cfg": {
         "name": "cformer",
         "n_causal": 32
-    }
+    },
+    "gradient_checkpointing": True
 }
 
 def get_args():
@@ -84,13 +91,17 @@ def get_args():
     data_arg.add_argument('--prompt_type', type=str, default='emu_default')
     data_arg.add_argument('--img_placeholder', type=str, default='[<IMG_PLH>]')
     data_arg.add_argument('--act_placeholder', type=str, default='[<ACT_PLH>]')
+    data_arg.add_argument('--use_history', type=str2bool, default=False)
+    data_arg.add_argument('--num_frames', type=int, default=6)
 
     model_arg = parser.add_argument_group('Model')
     model_arg.add_argument('--dtype', type=str, default='fp32')
     # for gcbc
     model_arg.add_argument('--encoder', type=str, default='resnetv1-34-bridge')
+    # for rt1
+    model_arg.add_argument('--text_enc', type=str, default=None, help="rt1 text encoder path")
     # for emu
-    model_arg.add_argument('--ckpt_path', type=str, default='/home/hyx/huggingface/Emu/pretrain', help="Emu ckpt path")
+    model_arg.add_argument('--emu_ckpt', type=str, default=None, help="Emu ckpt path")
     model_arg.add_argument('--instruct', type=str2bool, default=False, help="Load Emu-I")
 
     learn_arg = parser.add_argument_group('Learning')
@@ -116,6 +127,7 @@ def get_args():
     misc_arg = parser.add_argument_group('MISC')
     misc_arg.add_argument('--method', type=str, default='gc_bc')
     misc_arg.add_argument('--random_seed', type=int, default=42)
+    misc_arg.add_argument('--zero_stage', type=int, default=0)
 
     args, unparsed = parser.parse_known_args()
     if len(unparsed) > 1:
@@ -163,13 +175,17 @@ def get_ds_config(args):
             "min_loss_scale": 1,
             "initial_scale_power": 15
         },
-        # "zero_optimization": {
-        #     "stage": 2,
-        #     "contiguous_gradients": True,
-        #     "overlap_comm": True,
-        #     "reduce_scatter": True,
-        # },
-        "zero_optimization": {
+    }
+
+    if args.zero_stage == 2:
+        ds_config['zero_optimization'] = {
+            "stage": 2,
+            "contiguous_gradients": True,
+            "overlap_comm": True,
+            "reduce_scatter": True,
+        }
+    elif args.zero_stage == 3:
+        ds_config['zero_optimization'] = {
             "stage": 3,
             "offload_optimizer": {
                 "device": "cpu",
@@ -177,7 +193,5 @@ def get_ds_config(args):
             },
             "overlap_comm": True,
             "stage3_gather_16bit_weights_on_model_save": True
-        },
-    }
-
+        }
     return ds_config

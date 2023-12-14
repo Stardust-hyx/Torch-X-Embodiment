@@ -28,7 +28,7 @@ flags.DEFINE_bool("debug", False,
 flags.DEFINE_integer("num_workers", 8,
                      "Number of threads to use")
 
-os.environ['CUDA_VISIBLE_DEVICES'] = '0'
+os.environ['CUDA_VISIBLE_DEVICES'] = '1'
 
 def transform_imgs(imgs, tgt_size):
     # num_img * H * W * C (np.uint8)
@@ -79,6 +79,7 @@ def convert_dataset(in_dir, out_dir, gif_dir, log_dir, debug, args):
         return
     
     b = tfds.builder_from_directory(builder_dir=dataset_path)
+    all_splits = list(b.info.splits.keys())
     preprocess_func = PREPROCESS_FUNCTIONS[dataset_name]
 
     out_path = os.path.join(out_dir, dataset_name)
@@ -93,8 +94,21 @@ def convert_dataset(in_dir, out_dir, gif_dir, log_dir, debug, args):
     
     if debug:
         ds = b.as_dataset(split=f'{split_name}[:10]')
+    elif len(all_splits) == 1:
+        print(f'Only one split {all_splits} is found in {dataset_name}, automatically divding into two splits!')
+        whole_split = all_splits[0]
+        if split_name == 'train':
+            ds = b.as_dataset(split=f'{whole_split}[5%:95%]')
+        else:
+            ds = b.as_dataset(split=f'{whole_split}[:5%]+{whole_split}[95%:]')
     else:
-        ds = b.as_dataset(split=split_name)
+        try:
+            ds = b.as_dataset(split=split_name)
+        except:
+            assert split_name=='test' and 'val' in all_splits
+            ds = b.as_dataset(split='val')
+
+
         
     print(f'Processing {dataset_name} {split_name}-split...', file=log_f)
     num_empty_traj = 0
@@ -116,7 +130,7 @@ def convert_dataset(in_dir, out_dir, gif_dir, log_dir, debug, args):
         print(f"movement_actions:\n{traj['movement_actions']}", file=log_f)
         print(f"gripper_actions:\n{traj['gripper_actions']}", file=log_f)
         print(flush=True, file=log_f)
-        if i < 10 and gif_dir:
+        if i < 5 and gif_dir:
             # for manually checking
             images = [Image.fromarray(image) for image in traj['obs_images']]
             gif_path = os.path.join(gif_dir, dataset_name, split_name)
@@ -156,11 +170,12 @@ def action_statistics(list_actions, log_f):
     all_actions = np.concatenate(list_actions)
     num_transition = len(all_actions)
     actions_mean = np.mean(all_actions, axis=0).tolist()
-    actions_std = np.std(all_actions, axis=0).tolist()
+    actions_std = np.std(all_actions, axis=0)
     print(f'[num_transition]: {num_transition}', file=log_f)
     print(f'[avg_len_traj]: {num_transition//num_traj}', file=log_f)
     print(f'[mean]: {actions_mean}', file=log_f)
-    print(f'[std]: {actions_std}', file=log_f)
+    print(f'[std]: {actions_std.tolist()}', file=log_f)
+    actions_std = np.where(actions_std==0, 1.0, actions_std).tolist()
     return actions_mean, actions_std
 
 def main(_):

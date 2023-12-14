@@ -6,11 +6,13 @@ import torch.distributed as dist
 import deepspeed
 from deepspeed.utils import RepeatingLoader
 
+os.environ['TOKENIZERS_PARALLELISM'] = "false"
+
 from config import get_args, get_ds_config
 from utils.misc import set_random_seed
 from utils.criterion import action_criterion
 from data import XEmbodDatasetTorch
-from agents import resnetv1_configs, GCBCAgent, EmuAgent
+from agents import resnetv1_configs, GCBCAgent, RT1Agent, EmuAgent
 
 
 def evaluate(args, engine: deepspeed.DeepSpeedEngine, eval_dataset, criterion):
@@ -26,7 +28,7 @@ def evaluate(args, engine: deepspeed.DeepSpeedEngine, eval_dataset, criterion):
 
             outputs = engine(prompts, obs_imgs, goal_imgs, feature_imgs)
             actions = actions.to(engine.device)
-            _, info = criterion(outputs, actions)
+            _, info = criterion(outputs.pred_dist, actions)
 
             log_probs += info['log_probs']
             mse += info['mse']
@@ -190,8 +192,22 @@ if __name__ == '__main__':
     if args.method == 'gc_bc':
         encoder = resnetv1_configs[args.encoder](**args.gcbc_encoder_kwargs)
         agent = GCBCAgent(encoder, args)
+    elif args.method == 'rt1':
+        # vit = MaxViT(
+        #     num_classes = 1000,
+        #     dim_conv_stem = 64,
+        #     dim = 96,
+        #     dim_head = 32,
+        #     depth = (2, 2, 5, 2),
+        #     window_size = 7,
+        #     mbconv_expansion_rate = 4,
+        #     mbconv_shrinkage_rate = 0.25,
+        #     dropout = 0.1
+        # )
+        # agent = RT1Agent(args, vit, conditioner_kwargs={"model_names": args.text_enc})
+        agent = RT1Agent(args.text_enc, args)
     elif args.method == 'emu':
-        agent = EmuAgent.from_pretrained(args.ckpt_path, args)
+        agent = EmuAgent.from_pretrained(args.emu_ckpt, args).bfloat16()
     else:
         raise NotImplementedError
 

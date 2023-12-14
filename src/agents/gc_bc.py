@@ -13,7 +13,7 @@ class GCBCAgent(nn.Module):
     def __init__(
         self,
         encoder: nn.Module,
-        args: dict,
+        args,
         encode_dim: int = 512,
         hidden_dim: int =256,
         dropout_rate: float = 0.1,

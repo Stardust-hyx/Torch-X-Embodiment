@@ -27,6 +27,7 @@ class Emu(nn.Module, PredictClassMixin):
         multimodal_cfg: MultimodalCfg,
         vision_cfg: CLIPVisionCfg,
         vladapter_cfg: VLadapterCfg,
+        gradient_checkpointing: bool = False,
         quick_gelu: bool = False,
         cast_dtype: Optional[torch.dtype] = None,
         pad_id: int = 0,
@@ -49,7 +50,6 @@ class Emu(nn.Module, PredictClassMixin):
         )
         if vision_cfg.freeze:
             self.visual.requires_grad_(False)
-            self.visual = self.visual.eval()
 
         norm_layer = partial(LayerNorm, eps=1e-6)
         
@@ -62,7 +62,6 @@ class Emu(nn.Module, PredictClassMixin):
 
         if multimodal_cfg.freeze:
             self.decoder.requires_grad_(False)
-            self.decoder.eval()
 
         self.cformer = CausalFormer(args=args,
                                   n_causal=vladapter_cfg.n_causal,

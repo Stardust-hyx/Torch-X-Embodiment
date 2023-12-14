@@ -33,7 +33,7 @@ class EmuAgent(nn.Module):
         scheduler: str,
         unet: str,
         vae: str,
-        args: dict,
+        args,
         eva_size=224,
         eva_mean=(0.48145466, 0.4578275, 0.40821073),
         eva_std=(0.26862954, 0.26130258, 0.27577711),
@@ -64,7 +64,7 @@ class EmuAgent(nn.Module):
         self.emu_encoder = self.prepare_emu(args.emu_kwargs, multimodal_model, args)
         self.emu_encoder.decoder.add_action_tokens()
 
-        self.vae_scale_factor = 2 ** (len(self.vae.config.block_out_channels) - 1)
+        # self.vae_scale_factor = 2 ** (len(self.vae.config.block_out_channels) - 1)
 
         self.augment = args.augment
         self.augment_kwargs = args.augment_kwargs
@@ -75,46 +75,51 @@ class EmuAgent(nn.Module):
         self.ori_img_placeholder = args.img_placeholder
         self.ori_act_placeholder = args.act_placeholder
         self.image_placeholder = self.emu_encoder.image_placeholder
-        self.action_placeholder = "[ACT]" + "<action>" + "[/ACT]"
+        # self.action_placeholder = "[ACT]" + "<action>" + "[/ACT]"
+        self.action_placeholder = "<action>"
 
         hidden_dim = self.emu_encoder.decoder.lm.config.hidden_size
-        self.action_mean_mlp = nn.Sequential(
+        self.action_feature_fc = nn.Sequential(
             nn.Linear(hidden_dim, hidden_dim//2),
-            nn.Dropout(dropout_rate),
+            nn.Dropout(dropout_rate, inplace=True),
             nn.SiLU(inplace=True),
-            nn.Linear(hidden_dim//2, hidden_dim//2),
-            nn.Dropout(dropout_rate),
-            nn.SiLU(inplace=True),
-            nn.Linear(hidden_dim//2, action_dim)
+            # nn.Linear(hidden_dim//2, hidden_dim//2),
+            # nn.Dropout(dropout_rate),
+            # nn.SiLU(inplace=True),
+            # nn.Linear(hidden_dim//2, action_dim)
         )
-        
+        self.action_mean_fc = nn.Linear(hidden_dim//2, action_dim)
+
         self.register_buffer("fixed_std", torch.eye(action_dim))
 
     def forward(self, prompts, obs_imgs, goal_imgs, feature_imgs) -> EmuAgentOutput:
         device = self.emu_encoder.ln_visual.weight.device
         dtype = self.emu_encoder.ln_visual.weight.dtype
         images, input_ids, attention_mask = self._prepare_emu_input(prompts, obs_imgs, goal_imgs, feature_imgs, device, dtype)
+        # print(images.shape, input_ids.shape)
         output = self.emu_encoder.forward(images, input_ids, attention_mask)
 
-        means = self.action_mean_mlp(output.action_feature)
-        dist = MultivariateNormal(means, scale_tril=self.fixed_std)
+        # means = self.action_mean_mlp(output.action_feature)
+        means = self.action_mean_fc(self.action_feature_fc(output.action_feature))
+        dist = MultivariateNormal(means.float(), scale_tril=self.fixed_std.float())
         
         return EmuAgentOutput(
             pred_dist=dist
         )
     
     def _prepare_emu_input(self, prompts, obs_imgs, goal_imgs, feature_imgs, device, dtype):
-        _, C, H, W = obs_imgs.shape()
-        if goal_imgs and feature_imgs:
+        _, C, H, W = obs_imgs.shape
+        if goal_imgs is not None and feature_imgs is not None:
             images = torch.cat((obs_imgs, goal_imgs, feature_imgs), dim=1).reshape((-1, C, H, W))
-        elif goal_imgs:
+        elif goal_imgs is not None:
             images = torch.cat((obs_imgs, goal_imgs), dim=1).reshape((-1, C, H, W))
         else:
             images = obs_imgs
 
+        images = images.to(device)
         if self.training and self.augment:
             images = self.augment_transform(images)
-        images = self.transform(images.type(dtype) / 255.0).to(device)
+        images = self.transform(images.type(dtype) / 255.0)
         
         prompts = [t.replace(self.ori_img_placeholder, self.image_placeholder) for t in prompts]
         prompts = [t.replace(self.ori_act_placeholder, self.action_placeholder) for t in prompts]
@@ -134,9 +139,9 @@ class EmuAgent(nn.Module):
         else:
             obs_img = obs_img.to(self.fixed_std.device).unsqueeze_(0)
 
-        if goal_img and not isinstance(goal_img, torch.Tensor):
+        if goal_img is not None and not isinstance(goal_img, torch.Tensor):
             goal_img = torch.tensor(goal_img, device=self.fixed_std.device).unsqueeze_(0)
-        elif goal_img:
+        elif goal_img is not None:
             goal_img = goal_img.to(self.fixed_std.device).unsqueeze_(0)
 
         dist = self.forward([prompt], obs_img, goal_img, None).pred_dist
@@ -299,6 +304,8 @@ class EmuAgent(nn.Module):
             has_nsfw_concept = None
         return image, has_nsfw_concept
 
+    # def freeze
+    
     def prepare_emu(
         self,
         model_cfg: dict,
@@ -306,11 +313,13 @@ class EmuAgent(nn.Module):
         args: dict,
     ) -> Emu:
         model = Emu(**model_cfg, cast_dtype=torch.float, args=args)
-        ckpt = torch.load(model_path, map_location="cpu")
-        if "module" in ckpt:
-            model.load_state_dict(ckpt["module"], strict=True)
-        else:
-            model.load_state_dict(ckpt, strict=True)
+        # ckpt = torch.load(model_path, map_location="cpu")
+        # if "module" in ckpt:
+        #     model.load_state_dict(ckpt["module"], strict=True)
+        # else:
+        model.load_state_dict(torch.load(model_path), strict=True)
+        if model_cfg['gradient_checkpointing']:
+            model.set_grad_checkpointing()
         return model
 
     @classmethod

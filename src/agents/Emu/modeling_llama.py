@@ -199,6 +199,7 @@ class LLaMAForClsAndRegression(nn.Module):
             tokenizer=self.tokenizer,
             model=self.lm,
         )
+        # self.lm.get_input_embeddings().weight.requires_grad_(True)
         print(f"The Special Tokens: {self.tokenizer.special_tokens_map}")
         print(f"Vocab Size: {len(self.tokenizer)}")
         self.action_token_id = self.tokenizer.convert_tokens_to_ids(['<action>'])[0]
@@ -277,17 +278,17 @@ class LLaMAForClsAndRegression(nn.Module):
         assert regress_labels.shape == torch.Size([B*(n_causal+1)*3, C]), f"{regress_labels} != [{B}*{n_causal+1}*3, {C}]"
         # [B*(n_causal+1)*2, C]
         regress_labels = regress_labels.reshape((B, (n_causal+1)*3, C))[:, n_causal+1:].reshape((-1, C))
-        regress_mask = ((text_input == self.image_token_id) + (text_input == self.img_token_id)).to(image_embeds.device)
-        regress_mask = regress_mask.reshape((B, (n_causal+1)*3))[:, n_causal+1:].flatten()
+        # regress_mask = ((text_input == self.image_token_id) + (text_input == self.img_token_id)).to(image_embeds.device)
 
-        action_mask = ((text_input == self.action_token_id) + (text_input == self.act_token_id)).to(image_embeds.device)
+        # action_mask = ((text_input == self.action_token_id) + (text_input == self.act_token_id)).to(image_embeds.device)
+        action_mask = (text_input == self.action_token_id).to(image_embeds.device)
 
         outputs = self.lm.forward(
             inputs_embeds=text_embeds,
             attention_mask=text_mask,
             return_dict=True,
             labels=targets,
-            regress_mask=regress_mask,
+            # regress_mask=regress_mask,
             img_length=n_causal,
             args=self.args,
             regress_labels=regress_labels.detach(),

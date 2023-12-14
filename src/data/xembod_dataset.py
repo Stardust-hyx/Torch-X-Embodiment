@@ -102,6 +102,9 @@ class XEmbodDatasetTorch(IterableDataset):
 
         self.prompt_template = args.all_prompts[args.prompt_type]
 
+        self.use_history = args.use_history
+        self.num_frames = args.num_frames
+
         datasets = args.datasets
         dataset_paths = [os.path.join(args.data_dir, x) for x in datasets]
 
@@ -162,7 +165,8 @@ class XEmbodDatasetTorch(IterableDataset):
         return self.length
 
     def _sample_generator(self, indices, max_index):
-        if self.all_data_filenames_shuffled:
+        if self.is_train:
+            assert self.all_data_filenames_shuffled is not None, "Please shuffle the training dataset!"
             all_data_filenames = self.all_data_filenames_shuffled
         else:
             all_data_filenames = self.all_data_filenames
@@ -190,9 +194,8 @@ class XEmbodDatasetTorch(IterableDataset):
 
     def shuffle(self, seed):
         rng = np.random.default_rng(seed)
-        self.all_data_filenames_shuffled = rng.shuffle(
-            deepcopy(self.all_data_filenames)
-        )
+        self.all_data_filenames_shuffled = deepcopy(self.all_data_filenames)
+        rng.shuffle(self.all_data_filenames_shuffled)
 
     def process_traj(self, traj, ds_name):
         """
@@ -217,7 +220,12 @@ class XEmbodDatasetTorch(IterableDataset):
         goal_images = traj["goal_images"]
         future_images = traj["future_images"]
         actions = traj["actions"]
-        return prompt, obs_images, goal_images, future_images, actions
+        if self.use_history:
+            history_obs_imgs = self._get_history(obs_images)
+            history_actions = self._get_history(actions)
+            return prompt, history_obs_imgs, goal_images, future_images, history_actions
+        else:
+            return prompt, obs_images, goal_images, future_images, actions
     
     def _process_actions(self, traj, ds_name):
         """ adding field 'actions' to traj """
@@ -251,3 +259,22 @@ class XEmbodDatasetTorch(IterableDataset):
         }
         traj["prompt"] = self.prompt_template.format(**info)
         return traj
+    
+    def _get_history(self, items):
+        shape_ = (self.num_frames,) + items.shape[1:]
+        dtype_ = items.dtype
+        history = []
+        for i in range(len(items)):
+            end = i+1
+            start = end-self.num_frames
+            if start < 0:
+                if isinstance(items, torch.Tensor):
+                    chunk = torch.zeros(shape_, dtype=dtype_)
+                else:
+                    chunk = np.zeros(shape_, dtype=dtype_)
+                chunk[:end] = items[:end]
+            else:
+                chunk = items[start:end]
+            history.append(chunk)
+        return history
+    
