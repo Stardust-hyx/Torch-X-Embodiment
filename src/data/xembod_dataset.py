@@ -9,7 +9,7 @@ from datetime import timedelta
 from torch.utils.data import IterableDataset
 from .goal_relabeling import GOAL_RELABELING_FUNCTIONS
 
-def repeat_by_weights(list_data_filenames, sample_weights:str):
+def repeat_by_weights(list_data_filenames, sample_weights:str, repeat_limit: int=20):
     repeated_filenames = []
     if sample_weights == None:
         all_data_filenames = sum(list_data_filenames, [])
@@ -18,6 +18,7 @@ def repeat_by_weights(list_data_filenames, sample_weights:str):
         all_data_filenames = []
         for data_filenames in list_data_filenames:
             repeat_times = max_samples_per_set // len(data_filenames)
+            repeat_times = min(repeat_times, repeat_limit)
             all_data_filenames.extend(data_filenames * repeat_times)
             if repeat_times > 1:
                 repeated_filenames.extend(data_filenames)
@@ -29,6 +30,7 @@ def repeat_by_weights(list_data_filenames, sample_weights:str):
         for target_proportion, data_filenames in zip(sample_weights, list_data_filenames):
             proportion = len(data_filenames) / ori_total_num
             repeat_times = max(int(target_proportion // proportion), 1)
+            repeat_times = min(repeat_times, repeat_limit)
             all_data_filenames.extend(data_filenames * repeat_times)
             if repeat_times > 1:
                 repeated_filenames.extend(data_filenames)
@@ -105,7 +107,7 @@ class XEmbodDatasetTorch(IterableDataset):
         self.use_history = args.use_history
         self.num_frames = args.num_frames
 
-        datasets = args.datasets
+        datasets = args.benchmarks.split(',') if args.benchmarks else args.datasets
         dataset_paths = [os.path.join(args.data_dir, x) for x in datasets]
 
         # get the mean and std of actions 
@@ -208,7 +210,7 @@ class XEmbodDatasetTorch(IterableDataset):
             'gripper_actions': gripper_actions,
         }
         """
-        assert len(traj['obs_images']) == len(traj['movement_actions']) + 1
+        assert len(traj['obs_images']) == len(traj['movement_actions']) + 1, 'Must drop the last action when preprocessing'
         traj = self._process_actions(traj, ds_name)
         traj = self._add_goals(traj)
         traj = self._construct_prompt(traj)
@@ -230,13 +232,22 @@ class XEmbodDatasetTorch(IterableDataset):
     def _process_actions(self, traj, ds_name):
         """ adding field 'actions' to traj """
         movement_actions = traj["movement_actions"]
-        gripper_actions = np.expand_dims(traj["gripper_actions"], axis=1)
-
         # normalize movement actions
         if self.action_metadata is not None:
             movement_actions = (
                 movement_actions - self.action_metadata[ds_name]["movement_action_mean"]
             ) / self.action_metadata[ds_name]["movement_action_std"]
+
+        gripper_actions = traj["gripper_actions"]
+        if len(gripper_actions.shape) == 1:
+            # do not need to normalize gripper_actions that are already binarized,
+            # just expand it for concatenation
+            gripper_actions = np.expand_dims(gripper_actions, axis=1)
+        elif self.action_metadata is not None:
+            # normalize gripper_actions
+            gripper_actions = (
+                gripper_actions - self.action_metadata[ds_name]["gripper_action_mean"]
+            ) / self.action_metadata[ds_name]["gripper_action_std"]
 
         traj["actions"] = np.concatenate([movement_actions, gripper_actions], axis=1)
         return traj
@@ -253,7 +264,7 @@ class XEmbodDatasetTorch(IterableDataset):
         info = {
             "robot_type": traj["robot_and_gripper"][0],
             "gripper_type": traj["robot_and_gripper"][1],
-            "instruct": traj["instruction"],
+            "instruct": traj["instruction"].lower(),
             "img": self.args.img_placeholder,
             "act": self.args.act_placeholder,
         }

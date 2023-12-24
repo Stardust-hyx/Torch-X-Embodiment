@@ -5,7 +5,8 @@ DATASETS = [
     "viola",
     "toto",
     "stanford_hydra_dataset_converted_externally_to_rlds",
-    "austin_buds_dataset_converted_externally_to_rlds"
+    "austin_buds_dataset_converted_externally_to_rlds",
+    "maniskill_dataset_converted_externally_to_rlds"
 ]
 
 ALL_PROMPTS = {
@@ -93,6 +94,7 @@ def get_args():
     data_arg.add_argument('--act_placeholder', type=str, default='[<ACT_PLH>]')
     data_arg.add_argument('--use_history', type=str2bool, default=False)
     data_arg.add_argument('--num_frames', type=int, default=6)
+    data_arg.add_argument('--benchmarks', type=str, default=None, help='names of benchmark data folders (located at data_dir)')
 
     model_arg = parser.add_argument_group('Model')
     model_arg.add_argument('--dtype', type=str, default='fp32')
@@ -103,6 +105,7 @@ def get_args():
     # for emu
     model_arg.add_argument('--emu_ckpt', type=str, default=None, help="Emu ckpt path")
     model_arg.add_argument('--instruct', type=str2bool, default=False, help="Load Emu-I")
+    model_arg.add_argument('--action_dim', type=int, default=7)
 
     learn_arg = parser.add_argument_group('Learning')
     learn_arg.add_argument('--save_dir', type=str, default='./save')

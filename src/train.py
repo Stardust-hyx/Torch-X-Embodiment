@@ -1,4 +1,5 @@
 import os
+import shutil
 import json
 import time
 import torch
@@ -46,7 +47,8 @@ def evaluate(args, engine: deepspeed.DeepSpeedEngine, eval_dataset, criterion):
     return scores
     
 
-def train(args, engine: deepspeed.DeepSpeedEngine, criterion, train_dataset, eval_dataset, start_step=0):
+def train(args, engine: deepspeed.DeepSpeedEngine, criterion, train_dataset, eval_dataset,
+          start_step=0, best_score=-1e10, best_step=-1, pre_save_step=-1):
     rank = args.local_rank
     world_size = engine.world_size
     gradient_accumulation_steps = engine.gradient_accumulation_steps()
@@ -61,7 +63,6 @@ def train(args, engine: deepspeed.DeepSpeedEngine, criterion, train_dataset, eva
     epoch, micro_step, step = 0, 0, 0
     cur_time = time.time()
     avg_loss = 0.0
-    best_score, best_step = -1e10, -1
     for epoch in range(epochs):
         # shuffle train dataset at the begining of each epoch
         train_dataset.shuffle(seed=args.random_seed+epoch)
@@ -81,8 +82,7 @@ def train(args, engine: deepspeed.DeepSpeedEngine, criterion, train_dataset, eva
                 step += 1
             
             # skip previous steps to resume training
-            # This implementation does not give perfect restoration,
-            # due to the inner randomness of the model forward process
+            # Perfect restoration is not guaranteed due to the randomness of model forward process
             if (
                 step < start_step or
                 step == start_step and micro_step % gradient_accumulation_steps == 0
@@ -131,9 +131,12 @@ def train(args, engine: deepspeed.DeepSpeedEngine, criterion, train_dataset, eva
                     do_save = True
 
                 if do_save:
-                    client_state = {'step': step}
+                    if args.save_best and pre_save_step > 0:
+                        shutil.rmtree(os.path.join(args.save_dir, str(pre_save_step)), ignore_errors=True)
+                    client_state = {'step': step, 'best_score': best_score, 'best_step': best_step, 'pre_save_step': pre_save_step}
                     ckpt_id = step
                     engine.save_checkpoint(args.save_dir, ckpt_id, client_state=client_state)
+                    pre_save_step = step
 
             # finish all training steps
             if args.steps and step >= args.steps:
@@ -162,12 +165,16 @@ def train(args, engine: deepspeed.DeepSpeedEngine, criterion, train_dataset, eva
             do_save = True
 
         if do_save:
-            client_state = {'step': step}
+            if args.save_best and pre_save_step > 0:
+                shutil.rmtree(os.path.join(args.save_dir, pre_save_step))
+                pre_save_step = step
+            client_state = {'step': step, 'best_score': best_score, 'best_step': best_step, 'pre_save_step': pre_save_step}
             ckpt_id = step
             engine.save_checkpoint(args.save_dir, ckpt_id, client_state=client_state)
 
     # Finish training
-    print(f'Achieve best {args.main_metric} {best_score} on evaluation set at step {best_step}.')
+    if rank == 0:
+        print(f'Achieve best {args.main_metric} {best_score} on evaluation set at step {best_step}.')
 
 
 
@@ -210,11 +217,18 @@ if __name__ == '__main__':
         agent = EmuAgent.from_pretrained(args.emu_ckpt, args).bfloat16()
     else:
         raise NotImplementedError
+    
+    if args.benchmarks:
+        # To finetune for benchmarking,
+        # First load pretrained model checkpoint (optional)
+        # TODO
+        # Then renew the action output layer
+        agent.renew_action_linear(args.action_dim)
 
     engine, _, dataloader, _ = deepspeed.initialize(
         args=args,
         model=agent,
-        model_parameters=[p for p in agent.parameters() if p.requires_grad],
+        # model_parameters=[p for p in agent.parameters() if p.requires_grad],
         config=ds_config
     )
 
@@ -228,16 +242,19 @@ if __name__ == '__main__':
     # create loss function
     criterion = action_criterion
     
+    start_step, best_score, best_step, pre_save_step = 0, -1e10, -1, -1
     # load checkpoint if it exists,
     # to resume training
-    start_step = 0
     if args.save_dir and args.ckpt_id:
         _, client_state = engine.load_checkpoint(args.save_dir, args.ckpt_id)
         start_step = client_state['step']
+        best_score = client_state['best_score']
+        best_step = client_state['best_step']
+        pre_save_step = client_state['pre_save_step']
 
     if args.steps or args.epochs:
         # train and also evaluate periodically
-        train(args, engine, criterion, trainset, testset, start_step)
+        train(args, engine, criterion, trainset, testset, start_step, best_score, best_step, pre_save_step)
     elif is_master:
         print('skip training and evaluate directly...')
         evaluate(args, engine, testset, criterion)

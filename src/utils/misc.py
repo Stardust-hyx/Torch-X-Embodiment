@@ -2,7 +2,10 @@ import os
 import random
 import numpy as np
 import torch
-from torchvision.transforms import v2
+try:
+    from torchvision.transforms import v2
+except:
+    import torchvision.transforms as v2
 from transformers import set_seed
 from deepspeed.accelerator import get_accelerator
 

@@ -35,6 +35,10 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.distributions import MultivariateNormal
+try:
+    from torchvision.transforms import v2
+except:
+    import torchvision.transforms as v2
 
 from transformers import AutoModel, AutoTokenizer
 
@@ -58,7 +62,9 @@ class RT1Agent(nn.Module):
         feed_forward_size: int = 512,  # This corresponds to d_model which is embedding dimension of each token in transformer part.
         dropout_rate: float = 0.1,
         time_sequence_length: int = 6,
-        # action_order: Optional[List[str]] = None,
+        img_size: int = 300,
+        img_mean=(0.485, 0.456, 0.406),
+        img_std=(0.229, 0.224, 0.225),
         use_token_learner: Optional[bool] = True,
         return_attention_scores: bool = False,
         num_encoders=1,
@@ -71,28 +77,39 @@ class RT1Agent(nn.Module):
         self._time_sequence_length = time_sequence_length
         self.num_encoders = num_encoders
 
-        self.sentence_encoder = AutoModel.from_pretrained(text_enc, trust_remote_code=True) # trust_remote_code is needed to use the encode method
+        self.sentence_tokenizer = AutoTokenizer.from_pretrained(text_enc)
+        self.sentence_encoder = AutoModel.from_pretrained(text_enc)
         self.sentence_encoder.requires_grad_(False)
-        # self.sentence_tokenizer = AutoTokenizer.from_pretrained(text_enc)
-        # self.sentence_encoder = AutoModel.from_pretrained(text_enc)
-        # self.sentence_encoder.requires_grad_(False)
 
         self.augment = args.augment
         self.augment_kwargs = args.augment_kwargs
         if self.augment and self.augment_kwargs:
+            self.augment_kwargs['random_resized_crop']['size']  = (img_size, img_size) #TODO
             self.augment_transform = get_augment_transform(args.augment_kwargs)
+        self.img_size = img_size
+        self.img_resize = v2.Resize((img_size, img_size), antialias=True)
+        self.img_normalize = v2.Compose([
+            v2.ToDtype(torch.float32, scale=True),
+            v2.Normalize(mean=img_mean, std=img_std)
+        ])
 
         # create tokenizers
-        self._image_tokenizers = nn.ModuleDict()
-        for idx_encoder in range(num_encoders):
-            self._image_tokenizers[
-                str(idx_encoder)
-            ] = image_tokenizer.RT1ImageTokenizer(
-                embedding_output_dim=self._token_embedding_size,
-                language_embedding_size=self._language_embedding_size,
-                use_token_learner=use_token_learner,
-                num_tokens=8,
-            )
+        # self._image_tokenizers = nn.ModuleDict()
+        # for idx_encoder in range(num_encoders):
+        #     self._image_tokenizers[
+        #         str(idx_encoder)
+        #     ] = image_tokenizer.RT1ImageTokenizer(
+        #         embedding_output_dim=self._token_embedding_size,
+        #         language_embedding_size=self._language_embedding_size,
+        #         use_token_learner=use_token_learner,
+        #         num_tokens=8,
+        #     )
+        self._image_tokenizers = image_tokenizer.RT1ImageTokenizer(
+            embedding_output_dim=self._token_embedding_size,
+            language_embedding_size=self._language_embedding_size,
+            use_token_learner=use_token_learner,
+            num_tokens=8,
+        )
 
         self.using_proprioception = using_proprioception
         if self.using_proprioception:
@@ -122,9 +139,10 @@ class RT1Agent(nn.Module):
 
         # Get the number of tokens
         self._tokens_per_action = action_dim
-        self._tokens_per_context_image = self._image_tokenizers[
-            "0"
-        ].tokens_per_context_image
+        # self._tokens_per_context_image = self._image_tokenizers[
+        #     "0"
+        # ].tokens_per_context_image
+        self._tokens_per_context_image = self._image_tokenizers.tokens_per_context_image
 
         # generate loss mask and attention mask
         self._generate_masks()
@@ -235,7 +253,9 @@ class RT1Agent(nn.Module):
         obs_imgs = obs_imgs.to(self.fixed_std.device)
         if self.training and self.augment:
             obs_imgs = self.augment_transform(obs_imgs)
-        obs_imgs = obs_imgs.float() / 255.0
+        else:
+            obs_imgs = self.img_resize(obs_imgs) #TODO
+        obs_imgs = self.img_normalize(obs_imgs)
 
         b, t = obs_imgs.shape[:2]
         # b : batch size
@@ -286,9 +306,6 @@ class RT1Agent(nn.Module):
     def _assemble_input_token_sequence(
         self, context_image_tokens, batch_size
     ):
-        # embed action tokens
-        # action_tokens = F.one_hot(action_tokens, num_classes=self._vocab_size).to(torch.float32)
-        # action_tokens = self._action_token_emb(action_tokens) # [b, t , num_action_tokens, emb_dim]
 
         b, t, _, emb_dim = context_image_tokens.shape
         action_tokens = torch.zeros(
@@ -311,43 +328,31 @@ class RT1Agent(nn.Module):
     # At training, we don't use network_state at all.
     # At training, this will just convert image and context into tokens.
     def _tokenize_images(self, image, prompt):
-        image_shape = image.shape
-        b = image_shape[0]
-        input_t = image_shape[1]
-        c = image_shape[2]
-        h = image_shape[3]
-        w = image_shape[4]
+        b, input_t, _, _, _ = image.shape
 
         # return context from observation after check whether context is in observation.
         context = self._encoding_prompt(prompt) # [b, emb-size]
         context = context.unsqueeze(1).expand(b, input_t, -1) # [b, t, emb-size]
 
-        # preprocess image
-        image = image.view(
-            (b * input_t, c, h, w)
-        )  # image is already tensor and its range is [0,1]
-
-        image = preprocessors.convert_dtype_and_crop_images(image)
-        image = image.view((b, input_t, c, h, w))
-
-        context_image_tokens = []
-        # get image tokens
-        for i in range(self.num_encoders):
-            img = image[:, :, :, i * 256 : (i + 1) * 256, :]
-            context_image_tokens.append(
-                self._image_tokenizers[str(i)](img, context=context)
-            )  # (batch, t, num_tokens, embedding_dim)
-        context_image_tokens = sum(context_image_tokens)
+        # context_image_tokens = []
+        # # get image tokens
+        # for i in range(self.num_encoders):
+        #     img = image[:, :, :, i * 256 : (i + 1) * 256, :]
+        #     context_image_tokens.append(
+        #         self._image_tokenizers[str(i)](img, context=context)
+        #     )  # (batch, t, num_tokens, embedding_dim)
+        # context_image_tokens = sum(context_image_tokens)
+        context_image_tokens = self._image_tokenizers(image, context=context)
         return context_image_tokens
 
     # output context from observation. size: [b, t, emb-size]
     def _encoding_prompt(self, prompts):
         """Extract context from observation."""
-        embeddings = self.sentence_encoder.encode(prompts, convert_to_tensor=True)
-        # encoded_input = self.sentence_tokenizer(prompts, padding=True, truncation=True, return_tensors='pt')
-        # encoded_output = self.sentence_encoder(**encoded_input)
-        # # Perform pooling. In this case, cls pooling.
-        # embeddings = encoded_output[0][:, 0]
-        # # normalize embeddings
-        # embeddings = torch.nn.functional.normalize(embeddings, p=2, dim=1)
+        encoded_input = self.sentence_tokenizer(prompts, padding=True, truncation=True, return_tensors='pt')
+        encoded_input = encoded_input.to(self.fixed_std.device)
+        encoded_output = self.sentence_encoder(**encoded_input)
+        # Perform pooling. In this case, cls pooling.
+        embeddings = encoded_output[0][:, 0]
+        # normalize embeddings
+        embeddings = torch.nn.functional.normalize(embeddings, p=2, dim=1)
         return embeddings

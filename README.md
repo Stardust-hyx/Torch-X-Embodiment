@@ -18,7 +18,7 @@ We are activly implementing the following:
 - [ ] Act-Emu
 - [x] Demo on offline trajectories (for validation)
 - [ ] Evaluation on Language Table
-- [ ] Evaluation on Franka Kitchen
+- [x] Evaluation on Franka Kitchen
 - [ ] Real-word Evaluation (Franka Panda)
 
 ## Features
@@ -39,6 +39,7 @@ conda create -n xembod python=3.10
 conda activate xembod
 pip install -r requirements.txt
 ```
+(Optional) Install xformers following the [official instruction](https://github.com/facebookresearch/xformers).
 
 ## Download Data
 
@@ -118,7 +119,33 @@ The display image is expected to look like:
 
 ## Evaluation
 
-TODO
+### Franka Kitchen
+First fine-tune on 25 demostrations per task by runing
+```
+deepspeed --include localhost:0,1 --master_port 29600 src/train.py \
+    --data_dir /home/hyx/r3m-eval/data \
+    --benchmarks Franka_Kitchen_left_cap2,Franka_Kitchen_right_cap2 \
+    --action_dim 9 \
+    --sample_weights balance \
+    --num_workers 2 \
+    --method gc_bc \
+    --train_batch_size 64 \
+    --eval_batch_size 128 \
+    --steps 50000 \
+    --save_dir gcbc_franka_kitchen_save
+```
+
+Then test for 100 episodes per task
+```
+CUDA_VISIBLE_DEVICES=0 python src/eval_franka_kitchen.py \
+    --checkpoint_path {YOUR_SAVE_DIR}/{CHECKPOINT_ID}/mp_rank_00_model_states.pt \
+    --config_path {YOUR_SAVE_DIR}/config.json \
+    --benchmark_dir ../r3m-eval/data/final_paths_multiview_rb_200 \
+    --action_meta_path ../r3m-eval/data/Franka_Kitchen_left_cap2/action_meta.json \
+    --cameras left_cap2,right_cap2 \
+    --max_time_step 200 \
+    --use_goal_image True
+```
 
 ## Provided Checkpoints
 

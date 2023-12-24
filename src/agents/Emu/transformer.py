@@ -10,7 +10,7 @@ try:
     import xformers.ops as xops
 except ImportError:
     xops = None
-    print("Please 'pip install xformers'")
+    print("xformers is unavailable")
 
 
 class LayerNormFp32(nn.LayerNorm):
@@ -169,7 +169,7 @@ class Attention(nn.Module):
         # self.out_proj = xtriton.FusedLinear(dim, dim)
         self.out_drop = nn.Dropout(proj_drop)
         # self.out_drop = xtriton.FusedDropoutBias(p=proj_drop)
-        self.xattn = xattn
+        self.xattn = xattn and xops is not None
         self.xattn_drop = attn_drop
         self.rope = rope
 

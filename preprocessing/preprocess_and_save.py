@@ -111,17 +111,18 @@ def convert_dataset(in_dir, out_dir, gif_dir, log_dir, debug, args):
 
         
     print(f'Processing {dataset_name} {split_name}-split...', file=log_f)
-    num_empty_traj = 0
+    num_invalid_traj = 0
     all_movement_actions = []
     all_gripper_actions = []
     for i, episode in enumerate(iter(ds)):
         traj = preprocess_func(episode['steps'])
         print(f"{i}\ninstruction: {traj['instruction']}", file=log_f)
         # discard traj with only 1 observation and 0 transition
+        # also discard traj with undesired instruction (like the ones in the maniskill dataset)
         if len(traj['movement_actions']) == 0:
-            print(f"empty trajectory!", file=log_f)
+            print(f"Invalid trajectory!", file=log_f)
             print(flush=True, file=log_f)
-            num_empty_traj += 1
+            num_invalid_traj += 1
             continue
 
         # for computing the mean and std of actions
@@ -145,9 +146,9 @@ def convert_dataset(in_dir, out_dir, gif_dir, log_dir, debug, args):
             pickle.dump(traj, f)
 
     num_valid_traj = len(all_movement_actions)
-    print(f'# Empty Traj: {num_empty_traj}', file=log_f)
+    print(f'# Invalid Traj: {num_invalid_traj}', file=log_f)
     print(f'# Valid Traj(saved): {num_valid_traj}', file=log_f)
-    print(f'# Total Traj: {num_empty_traj+num_valid_traj}', file=log_f)
+    print(f'# Total Traj: {num_invalid_traj+num_valid_traj}', file=log_f)
     print(f'Overall Movement Actions:', file=log_f)
     movement_action_mean, movement_action_std = action_statistics(all_movement_actions, log_f)
     print(f'Overall Gripper Action:', file=log_f)

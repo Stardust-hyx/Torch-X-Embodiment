@@ -39,19 +39,19 @@ def convert_dtype_and_crop_images(images: torch.Tensor, ratio: float = 0.07):
         images = images / 255.
     images = images.to(torch.float32)
 
-    _, _, height, width = images.shape
-    ud_pad = int(height * ratio)
-    lr_pad = int(width * ratio)
+    # _, _, height, width = images.shape
+    # ud_pad = int(height * ratio)
+    # lr_pad = int(width * ratio)
     
-    images= F.pad(images, pad=(lr_pad, lr_pad, ud_pad, ud_pad))
+    # images= F.pad(images, pad=(lr_pad, lr_pad, ud_pad, ud_pad))
 
-    shif_h = torch.randint(0, 2*ud_pad+1, size=[])
-    shif_w = torch.randint(0, 2*lr_pad+1, size=[])
+    # shif_h = torch.randint(0, 2*ud_pad+1, size=[])
+    # shif_w = torch.randint(0, 2*lr_pad+1, size=[])
 
-    grid_h, grid_w = torch.meshgrid(torch.arange(shif_h, shif_h + height),
-                                    torch.arange(shif_w, shif_w + width), 
-                                    indexing='ij')
-    images = images[..., grid_h, grid_w] # fancy index
+    # grid_h, grid_w = torch.meshgrid(torch.arange(shif_h, shif_h + height),
+    #                                 torch.arange(shif_w, shif_w + width), 
+    #                                 indexing='ij')
+    # images = images[..., grid_h, grid_w] # fancy index
 
     return images
 

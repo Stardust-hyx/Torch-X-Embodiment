@@ -1,6 +1,10 @@
-torch==2.1.0
-torchvision==0.16.0
-deepspeed==0.10.2
 tfds-nightly
 tensorflow[and-cuda]
-xformer
+torch==2.1.0
+torchvision==0.16.0
+transformers>=4.30.2
+deepspeed==0.10.2
+scikit-image
+timm
+einops
+diffusers==0.15.1

@@ -185,7 +185,6 @@ class Transformer(nn.Module):
 
         # Add the two embedded tensors together
         x = tokens_embeddings + position_embeddings # (bs, seq_len, feed_forward_size)
-
         scores = []
 
         for layer in self._layers:

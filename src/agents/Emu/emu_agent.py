@@ -9,7 +9,10 @@ from dataclasses import dataclass
 
 import torch
 import torch.nn as nn
-from torchvision import transforms as TF
+try:
+    from torchvision.transforms import v2
+except:
+    import torchvision.transforms as v2
 from torch.distributions import MultivariateNormal
 
 from diffusers import AutoencoderKL, PNDMScheduler, UNet2DConditionModel
@@ -70,7 +73,7 @@ class EmuAgent(nn.Module):
         self.augment_kwargs = args.augment_kwargs
         if self.augment and self.augment_kwargs:
             self.augment_transform = get_augment_transform(args.augment_kwargs)
-        self.transform = TF.Normalize(mean=eva_mean, std=eva_std)
+        self.transform = v2.Normalize(mean=eva_mean, std=eva_std)
 
         self.ori_img_placeholder = args.img_placeholder
         self.ori_act_placeholder = args.act_placeholder
@@ -88,7 +91,7 @@ class EmuAgent(nn.Module):
             # nn.SiLU(inplace=True),
             # nn.Linear(hidden_dim//2, action_dim)
         )
-        self.action_mean_fc = nn.Linear(hidden_dim//2, action_dim)
+        self.action_mean_linear = nn.Linear(hidden_dim//2, action_dim)
 
         self.register_buffer("fixed_std", torch.eye(action_dim))
 
@@ -99,8 +102,8 @@ class EmuAgent(nn.Module):
         # print(images.shape, input_ids.shape)
         output = self.emu_encoder.forward(images, input_ids, attention_mask)
 
-        # means = self.action_mean_mlp(output.action_feature)
-        means = self.action_mean_fc(self.action_feature_fc(output.action_feature))
+        feature = self.action_feature_fc(output.action_feature)
+        means = self.action_mean_linear(feature)
         dist = MultivariateNormal(means.float(), scale_tril=self.fixed_std.float())
         
         return EmuAgentOutput(

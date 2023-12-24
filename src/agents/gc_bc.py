@@ -85,3 +85,17 @@ class GCBCAgent(nn.Module):
         else:
             actions = dist.sample()
         return actions
+    
+    def renew_action_linear(self, action_dim):
+        hidden_dim = self.action_mean_linear.weight.data.shape[1]
+        self.action_mean_linear = nn.Linear(hidden_dim, action_dim)
+        self.register_buffer("fixed_std", torch.eye(action_dim))
+
+    def set_feature_layers_require_grad(self, flag: bool):
+        self.encoder.requires_grad_(flag)
+
+    def set_action_fc_require_grad(self, flag: bool):
+        self.mlp.requires_grad_(flag)
+
+    def set_action_linear_require_grad(self, flag: bool):
+        self.action_mean_linear.requires_grad_(flag)

@@ -7,12 +7,17 @@ DATASETS = [
     'taco_play', # 48GB, low-quality obs image (occlusion happens frequently)
     # 'jaco_play',
     'berkeley_cable_routing', # 4.7GB, low-quality language instruction ("route cable")
-    'roboturk', # 45GB, low-quality language instruction ("object search", "layout laundry", "create tower")
+    # 'roboturk', # 45GB, low-quality language instruction ("object search", "layout laundry", "create tower")
     # 'nyu_door_opening_surprising_effectiveness',
     'viola', # 10GB, high control frequency and many redundant actions in demonstration
-    'berkeley_autolab_ur5', # 76GB, high quality
+    # 'berkeley_autolab_ur5', # 76GB, high quality
     'toto', # 127GB, low-quality language instruction ("pour"), high control frequency
     # 'language_table',
+    # The datasets above were used in the paper 'Open X-Embodiment: Robotic Learning Datasets and RT-X Models>'.
+    "stanford_hydra_dataset_converted_externally_to_rlds", # 72.5GB, high quality
+    "austin_buds_dataset_converted_externally_to_rlds", # 1.5GB, high quality
+    # "nyu_franka_play_dataset_converted_externally_to_rlds", # 5.2GB, low-quality language instruction ("play with the kitchen")
+    "maniskill_dataset_converted_externally_to_rlds", # 151GB, low-quality language instruction
 ]
 
 def taco_play_preprocess(episode):
@@ -134,6 +139,99 @@ def toto_preprocess(episode):
         'gripper_actions': gripper_actions,
     }
 
+def stanford_hydra_preprocess(episode):
+    list_obs_image = np.array([step['observation']['image'] for step in episode])
+    list_instruct = [step['language_instruction'] for step in episode]
+    assert all(inst == list_instruct[0] for inst in list_instruct)
+    list_actions = np.array([step['action'] for step in episode])
+    movement_actions = list_actions[:-1, :6]
+    # 0 is open gripper, 1 is closed gripper
+    gripper_actions = list_actions[:-1, 6]
+    # -1 is open gripper, 1 is closed gripper
+    gripper_actions = (gripper_actions - 0.5) * 2
+    return {
+        'robot_and_gripper': ['Franka', 'Franka_Default'],
+        'instruction': list_instruct[0].numpy().decode('utf-8'),
+        'obs_images': list_obs_image,
+        'movement_actions': movement_actions,
+        'gripper_actions': gripper_actions,
+    }
+
+def austin_buds_preprocess(episode):
+    list_obs_image = np.array([step['observation']['image'] for step in episode])
+    list_instruct = [step['language_instruction'] for step in episode]
+    assert all(inst == list_instruct[0] for inst in list_instruct)
+    list_actions = np.array([step['action'] for step in episode])
+    movement_actions = list_actions[:-1, :6]
+    # -1 is open gripper, 1 is closed gripper
+    gripper_actions = list_actions[:-1, 6]
+    return {
+        'robot_and_gripper': ['Franka', 'Franka_Default'],
+        'instruction': list_instruct[0].numpy().decode('utf-8'),
+        'obs_images': list_obs_image,
+        'movement_actions': movement_actions,
+        'gripper_actions': gripper_actions,
+    }
+
+def nyu_franka_play_preprocess(episode):
+    list_obs_image = np.array([step['observation']['image'] for step in episode])
+    list_instruct = [step['language_instruction'] for step in episode]
+    assert all(inst == list_instruct[0] for inst in list_instruct)
+    list_actions = np.array([step['action'] for step in episode])
+    movement_actions = list_actions[:-1, 7:13]
+    # -1 is closed gripper, 1 is open gripper
+    gripper_actions = list_actions[:-1, 13]
+    # reverse, so that -1 is open gripper, 1 is closed gripper
+    gripper_actions = -gripper_actions
+    return {
+        'robot_and_gripper': ['Franka', 'Franka_Default'],
+        'instruction': list_instruct[0].numpy().decode('utf-8'),
+        'obs_images': list_obs_image,
+        'movement_actions': movement_actions,
+        'gripper_actions': gripper_actions,
+    }
+
+def maniskill_preprocess(episode, discard_keywords=['goal', 'designated']):
+    list_obs_image = np.array([step['observation']['image'] for step in episode])
+    list_instruct = [step['language_instruction'] for step in episode]
+    assert all(inst == list_instruct[0] for inst in list_instruct)
+    inst = list_instruct[0].numpy().decode('utf-8')
+    if any(x in inst for x in discard_keywords):
+        return {
+            'instruction': inst,
+            'movement_actions': [],
+        }
+    list_actions = np.array([step['action'] for step in episode])
+    movement_actions = list_actions[:-1, :6]
+    # -1 is closed gripper, 1 is open gripper
+    gripper_actions = list_actions[:-1, 6]
+    # reverse, so that -1 is open gripper, 1 is closed gripper
+    gripper_actions = -gripper_actions
+    return {
+        'robot_and_gripper': ['Franka', 'Franka_Default'],
+        'instruction': inst,
+        'obs_images': list_obs_image,
+        'movement_actions': movement_actions,
+        'gripper_actions': gripper_actions,
+    }
+
+def language_table_preprocess(episode):
+    list_obs_image = np.array([step['observation']['image'] for step in episode])
+    list_instruct = [step['language_instruction'] for step in episode]
+    assert all(inst == list_instruct[0] for inst in list_instruct)
+    list_actions = np.array([step['action'] for step in episode])
+    movement_actions = list_actions[:-1, :6]
+    # 1 is closed gripper, -1 is open gripper
+    gripper_actions = list_actions[:-1, 6]
+    return {
+        'robot_and_gripper': ['xArm', 'stick for pushing'],
+        'instruction': list_instruct[0].numpy().decode('utf-8'),
+        'obs_images': list_obs_image,
+        'movement_actions': movement_actions,
+        'gripper_actions': gripper_actions,
+    }
+
+
 PREPROCESS_FUNCTIONS = {
     "taco_play": taco_play_preprocess,
     "berkeley_cable_routing": berkeley_cable_routing_preprocess,
@@ -141,4 +239,9 @@ PREPROCESS_FUNCTIONS = {
     "viola": viola_preprocess,
     "berkeley_autolab_ur5": berkeley_autolab_ur5_preprocess,
     "toto": toto_preprocess,
+    "language_table": language_table_preprocess,
+    "stanford_hydra_dataset_converted_externally_to_rlds": stanford_hydra_preprocess,
+    "austin_buds_dataset_converted_externally_to_rlds": austin_buds_preprocess,
+    "nyu_franka_play_dataset_converted_externally_to_rlds": nyu_franka_play_preprocess,
+    "maniskill_dataset_converted_externally_to_rlds": maniskill_preprocess,
 }

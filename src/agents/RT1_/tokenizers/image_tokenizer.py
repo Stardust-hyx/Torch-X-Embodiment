@@ -86,6 +86,8 @@ class RT1ImageTokenizer(nn.Module):
             context = context.reshape(b * t, -1)
 
         tokens = self._tokenizer(image, context=context)  # [b * t, 512 , 10, 10]
+        # if not self.training:
+        #     print(f'tokens {tokens[0, 0, 0]}', flush=True)
 
         if self._use_token_learner:
             tokens = self._token_learner(tokens)  # [b * t, num_token, 512]

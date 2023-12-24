@@ -59,6 +59,7 @@ class EfficientNetEncoder(nn.Module):
             include_film=early_film,
             text_embed_dim=language_embedding_size,
         )
+        self.net = nn.SyncBatchNorm.convert_sync_batchnorm(self.net)
         self.film_layer = FilmConditioning(
             num_channels=token_embedding_size, text_embed_dim=language_embedding_size
         )

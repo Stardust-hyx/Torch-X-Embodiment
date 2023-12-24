@@ -22,13 +22,13 @@ try:
     import xformers.ops as xops
 except ImportError:
     xops = None
-    print("Please 'pip install xformers'")
+    print("It is advisable to install xformers")
 
 try:
     import xformers.triton as xtriton
 except ImportError:
     xtriton = None
-    print("Please 'pip install xformers'")
+    print("It is advisable to install xformers")
 
 
 def resize_rel_pos_embed(state_dict, model, interpolation: str = 'bicubic', seq_dim=1):
@@ -269,7 +269,7 @@ class Attention(nn.Module):
         # self.proj = xtriton.FusedLinear(all_head_dim, all_head_dim)
         self.proj_drop = nn.Dropout(proj_drop)
         # self.proj_drop = xtriton.FusedDropoutBias(p=proj_drop)
-        self.xattn = xattn
+        self.xattn = xattn and xops is not None
         self.xattn_drop = attn_drop
 
         self.rope = rope
