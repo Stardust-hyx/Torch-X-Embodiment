@@ -186,6 +186,7 @@ CUDA_VISIBLE_DEVICES=0 python src/eval_calvin.py \
 Note that, set the "--use_goal_image" flag for GCBC; set the "--gen_goal_image" flag for Act-Emu.
 
 - Overall Performance on the Validation Set:
+
 |                            | Overall Success Rate |
 | -------------------------  | -------------------- |
 | GCBC (w/o pretrain)        | 55.2%                |
@@ -212,6 +213,7 @@ CUDA_VISIBLE_DEVICES=0 python src/eval_calvin_LH.py \
 ```
 
 - Long-horizon Multi-task Results (tasks completed in a row):
+
 |                            |   1   |   2   |   3   |   4   |   5   |
 | -------------------------- | ----- | ----- | ----- | ----- | ----- |
 | RT-1 (w/o pretrain)        | 83.0% | 51.0% | 29.8% | 13.5% |  7.0% |
