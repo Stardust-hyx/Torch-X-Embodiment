@@ -16,9 +16,8 @@ We are activly implementing the following:
 - [ ] RT-2 baseline
 - [X] Act-Emu w/o diffusion loss
 - [X] Act-Emu
-- [X] Demo on offline trajectories (for validation)
-- [X] Evaluation on Franka Kitchen
-- [ ] Evaluation on CALVIN
+- [X] Demo on offline trajectories
+- [X] Evaluation on CALVIN
 - [ ] Real-word Evaluation (Franka Panda)
 
 ## Features
