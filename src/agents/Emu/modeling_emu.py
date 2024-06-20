@@ -27,6 +27,8 @@ class Emu(nn.Module, PredictClassMixin):
         multimodal_cfg: MultimodalCfg,
         vision_cfg: CLIPVisionCfg,
         vladapter_cfg: VLadapterCfg,
+        unfreeze_vit_layers: list,
+        unfreeze_llm_layers: list,
         gradient_checkpointing: bool = False,
         quick_gelu: bool = False,
         cast_dtype: Optional[torch.dtype] = None,
@@ -56,17 +58,34 @@ class Emu(nn.Module, PredictClassMixin):
         self.ln_visual = norm_layer(vision_cfg.width)
         nn.init.constant_(self.ln_visual.bias, 0)
         nn.init.constant_(self.ln_visual.weight, 1.0)
+        if vision_cfg.freeze:
+            self.ln_visual.requires_grad_(False)
 
         from .modeling_llama import LLaMAForClsAndRegression
-        self.decoder = LLaMAForClsAndRegression(args=args)
+        from accelerate import init_empty_weights
+        if args.emu_ckpt:
+            with init_empty_weights():
+                self.decoder = LLaMAForClsAndRegression(args=args)
+        else:
+            self.decoder = LLaMAForClsAndRegression(args=args)
 
         if multimodal_cfg.freeze:
             self.decoder.requires_grad_(False)
 
-        self.cformer = CausalFormer(args=args,
-                                  n_causal=vladapter_cfg.n_causal,
-                                  vision_width=vision_cfg.width,
-                                  output_dim=self.decoder.config.d_model)
+        if args.emu_ckpt:
+            with init_empty_weights():
+                self.cformer = CausalFormer(args=args,
+                                        n_causal=vladapter_cfg.n_causal,
+                                        vision_width=vision_cfg.width,
+                                        output_dim=self.decoder.config.d_model)
+        else:
+            self.cformer = CausalFormer(args=args,
+                                        n_causal=vladapter_cfg.n_causal,
+                                        vision_width=vision_cfg.width,
+                                        output_dim=self.decoder.config.d_model)
+        self.cformer.requires_grad_(False)
+        # self.cformer.causal_tokens.requires_grad_(True)
+        # self.cformer.projection.requires_grad_(True)
 
         self.n_causal = vladapter_cfg.n_causal
         self.pad_id = pad_id
@@ -76,12 +95,33 @@ class Emu(nn.Module, PredictClassMixin):
         self._lemmatizer = None
 
         self.image_placeholder = "[IMG]" + "<image>" * self.n_causal + "[/IMG]"
+        # self.action_placeholder = "[ACT]" + "<action>" + "[/ACT]"
+        self.action_placeholder = "<action>" 
 
     @torch.jit.ignore
     def set_grad_checkpointing(self, enable=True):
-        self.visual.set_grad_checkpointing(enable)
-        self.cformer.set_grad_checkpointing()
+        # self.visual.set_grad_checkpointing(enable)
+        # self.cformer.set_grad_checkpointing()
         self.decoder.set_grad_checkpointing()
+        
+    def set_vit_layers_require_grad(self, flag: bool, layer_ids=[0,-1]):
+        # print(self.visual)
+        for i in range(len(self.visual.blocks)):
+            if i % 2 == 0:
+                continue
+            self.visual.blocks[i].attn.qkv.requires_grad_(flag)
+        # self.ln_visual.requires_grad_(flag)
+        return
+        
+    def set_llm_layers_require_grad(self, flag: bool, layer_ids=[0,-1]):
+        # print(self.decoder.lm.model)
+        # for i in layer_ids:
+        #     self.decoder.lm.model.layers[i].requires_grad_(flag)
+        self.decoder.lm.base_model.model.model.embed_tokens.requires_grad_(False)
+        self.decoder.lm.base_model.model.model.norm.requires_grad_(flag)
+        self.decoder.lm.base_model.model.lm_head.requires_grad_(False)
+        self.decoder.lm.base_model.model.stu_regress_head.requires_grad_(flag)
+        return
 
     def forward(self, image, text_input, input_mask, text_output=None, output_mask=None, image_latent=None,
                 image_features=None) -> RegressCausalLMOutputWithPast:
@@ -147,7 +187,7 @@ class Emu(nn.Module, PredictClassMixin):
         img_token_idx_list = input_ids.eq(img_token_id)
 
         with torch.amp.autocast(device_type=self.args.device.type, dtype=torch.bfloat16):
-            if self.args.instruct:
+            if self.args.lora:
                 inputs_embeds = self.decoder.lm.model.model.embed_tokens(input_ids)
             else:
                 inputs_embeds = self.decoder.lm.model.embed_tokens(input_ids)
@@ -188,74 +228,120 @@ class Emu(nn.Module, PredictClassMixin):
     def generate_image(
         self,
         text: List[str],
-        image: Optional[torch.Tensor] = None,
+        prompt_image_embeds: Optional[torch.Tensor] = None,
         placeholder: str = "[<IMG_PLH>]",
+        act_placeholder: str = "[<ACT_PLH>]",
     ) -> torch.Tensor:
         IMAGE, BOI = self.decoder.tokenizer.convert_tokens_to_ids(["<image>", "[IMG]"])
         device = self.ln_visual.weight.device
 
-        if image is not None:
-            # image placeholder is already injected into text prompt
-            prompt_image_embeds = self.visual.forward_features(image)
-            prompt_image_embeds = self.ln_visual(prompt_image_embeds)
-            prompt_image_embeds = self.cformer(prompt_image_embeds)
-            print(f'prompt_image_embeds.shape\n{prompt_image_embeds.shape}')
-            prompt_image_embeds = prompt_image_embeds.view(-1, prompt_image_embeds.shape[-1])
-            print(f'prompt_image_embeds.shape\n{prompt_image_embeds.shape}')
-
         text = [t.replace(placeholder, self.image_placeholder) for t in text]
+        text = [t.replace(act_placeholder, self.action_placeholder) for t in text]
 
+        """ Preparing """
+        inputs = self.decoder.tokenizer(text, padding="longest", return_tensors="pt")
+        attention_mask = inputs.attention_mask.to(device)
+        input_ids = inputs.input_ids.to(device)
+        # Space Mark (' ') at the end of text will introduce an extra token, which should be removed here!
+        if input_ids.shape[-1] == self.decoder.tokenizer([f"{t}[IMG]" for t in text], padding="longest", return_tensors="pt").input_ids.shape[-1]:
+            attention_mask = attention_mask[:, :-1]
+            input_ids = input_ids[:, :-1]
+        try:
+            text_embeds = self.decoder.lm.model.model.embed_tokens(input_ids)
+        except:
+            text_embeds = self.decoder.lm.model.embed_tokens(input_ids)
+
+        image_idx = (input_ids == IMAGE)
+        cumsum_idx = torch.flip(torch.cumsum(torch.flip(image_idx, dims=[1]), dim=1), dims=[1])
+        # print(f'cumsum_idx.shape\n{cumsum_idx.shape}')
+        # print(f'cumsum_idx\n{cumsum_idx}')
+        if prompt_image_embeds is not None:
+            prompt_idx = torch.logical_and(image_idx, cumsum_idx > 0)
+            # print(f'prompt_idx\n{prompt_idx}')
+            text_embeds[prompt_idx] = prompt_image_embeds
+
+        try:
+            outputs = self.decoder.lm.model.model(
+                inputs_embeds=text_embeds,
+                attention_mask=attention_mask,
+                use_cache=True,
+                output_hidden_states=True,
+                return_dict=True,
+            )
+        except:
+            outputs = self.decoder.lm.model(
+                inputs_embeds=text_embeds,
+                attention_mask=attention_mask,
+                use_cache=True,
+                output_hidden_states=True,
+                return_dict=True,
+            )
+        past_key_values = outputs.past_key_values
+        B, _, C = text_embeds.shape
+        """ End Preparing """
+
+        """ Begin """
         target_image_embeds = None
         for num_img_token in range(self.n_causal):
             if num_img_token == 0:
                 text = [f"{t}[IMG]" for t in text]
             else:
                 text = [f"{t}<image>" for t in text]
-            print(f'text\n{text}')
+            # print(f'text\n{text}')
 
             inputs = self.decoder.tokenizer(text, padding="longest", return_tensors="pt")
             attention_mask = inputs.attention_mask.to(device)
             input_ids = inputs.input_ids.to(device)
-            print(f'input_ids\n{input_ids}')
-            text_embeds = self.decoder.lm.model.embed_tokens(input_ids)
-            print(f'text_embeds.shape\n{text_embeds.shape}')
+            # print(f'input_ids\n{input_ids}')
+            try:
+                text_embeds = self.decoder.lm.model.model.embed_tokens(input_ids)
+            except:
+                text_embeds = self.decoder.lm.model.embed_tokens(input_ids)
+            # print(f'text_embeds.shape\n{text_embeds.shape}')
 
             image_idx = (input_ids == IMAGE)
             cumsum_idx = torch.flip(torch.cumsum(torch.flip(image_idx, dims=[1]), dim=1), dims=[1])
-            print(f'cumsum_idx.shape\n{cumsum_idx.shape}')
-            print(f'cumsum_idx\n{cumsum_idx}')
-            if image is not None:
-                prompt_idx = torch.logical_and(image_idx, cumsum_idx > num_img_token)
-                print(f'prompt_idx\n{prompt_idx}')
-                text_embeds[prompt_idx] = prompt_image_embeds
-
             if target_image_embeds is not None:
                 target_idx = torch.logical_and(image_idx, torch.logical_and(cumsum_idx > 0, cumsum_idx <= num_img_token))
-                print(f'target_idx\n{target_idx}')
+                # print(f'target_idx\n{target_idx}')
                 text_embeds[target_idx] = target_image_embeds
 
-            outputs = self.decoder.lm.model(
-                inputs_embeds=text_embeds,
-                attention_mask=attention_mask,
-                output_hidden_states=True,
-                return_dict=True,
-            )
-
-            image_idx = (input_ids == IMAGE) + (input_ids == BOI)
-            cumsum_idx = torch.flip(torch.cumsum(torch.flip(image_idx, dims=[1]), dim=1), dims=[1])
-            target_idx = torch.logical_and(image_idx, torch.logical_and(cumsum_idx > 0, cumsum_idx <= num_img_token+1))
+            try:
+                outputs = self.decoder.lm.model.model(
+                    inputs_embeds=text_embeds[:, -1:],
+                    attention_mask=attention_mask,
+                    past_key_values=past_key_values,
+                    use_cache=True,
+                    output_hidden_states=True,
+                    return_dict=True,
+                )
+            except:
+                outputs = self.decoder.lm.model(
+                    inputs_embeds=text_embeds[:, -1:],
+                    attention_mask=attention_mask,
+                    past_key_values=past_key_values,
+                    use_cache=True,
+                    output_hidden_states=True,
+                    return_dict=True,
+                )
 
             hidden_states = outputs.hidden_states[-1]
-            target_image_embeds = hidden_states[target_idx]
-            target_image_embeds = target_image_embeds.view(-1, target_image_embeds.shape[-1])
-            target_image_embeds = self.decoder.lm.stu_regress_head(target_image_embeds)
-            print()
+            new_image_embeds = hidden_states[:, -1]
+            new_image_embeds = self.decoder.lm.stu_regress_head(new_image_embeds)
+            if target_image_embeds is None:
+                target_image_embeds = new_image_embeds
+            else:
+                new_image_embeds = new_image_embeds.view(B, 1, C)
+                target_image_embeds = target_image_embeds.view(B, -1, C)
+                target_image_embeds = torch.cat((target_image_embeds, new_image_embeds), dim=1)
+                target_image_embeds = target_image_embeds.view(-1, C)
+            # print()
 
-        print(f'target_image_embeds.shape\n{target_image_embeds.shape}')
-        _, C = target_image_embeds.shape
-        B = hidden_states.shape[0]
+            past_key_values = outputs.past_key_values
+
+        # print(f'target_image_embeds.shape\n{target_image_embeds.shape}')
         target_image_embeds = target_image_embeds.view(B, -1, C)
-        print(f'target_image_embeds.shape\n{target_image_embeds.shape}')
-        print()
+        # print(f'target_image_embeds.shape\n{target_image_embeds.shape}')
+        # print()
 
         return target_image_embeds

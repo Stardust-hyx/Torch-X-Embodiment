@@ -10,6 +10,9 @@ from torch.distributions import MultivariateNormal
 
 def action_criterion(output_dists: MultivariateNormal, gold_actions: torch.Tensor):
     pi_actions = output_dists.mode
+    assert pi_actions.shape == gold_actions.shape
+    # if pi_actions.shape != gold_actions.shape:
+    #     gold_actions = gold_actions[:, -1]
     log_probs = output_dists.log_prob(gold_actions)
     mse = ((pi_actions - gold_actions) ** 2).sum(-1)
     actor_loss = -(log_probs).mean()

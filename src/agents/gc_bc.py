@@ -35,12 +35,13 @@ class GCBCAgent(nn.Module):
             nn.SiLU(inplace=True)
         )
 
+        self.action_dim = action_dim
         self.action_mean_linear = nn.Linear(hidden_dim, action_dim)
 
         self.augment = args.augment
         self.augment_kwargs = args.augment_kwargs
         if self.augment and self.augment_kwargs:
-            self.augment_transform = get_augment_transform(args.augment_kwargs)
+            self.augment_transform = get_augment_transform(self.augment_kwargs)
 
         self.register_buffer("fixed_std", torch.eye(action_dim))
 
@@ -58,9 +59,10 @@ class GCBCAgent(nn.Module):
         means = self.action_mean_linear(outputs)
 
         dist = MultivariateNormal(means, scale_tril=self.fixed_std)
-        return GCBCAgentOutput(
-            pred_dist=dist
-        )
+        # return GCBCAgentOutput(
+        #     pred_dist=dist
+        # )
+        return (dist,)
     
     def _augment(self, image_tuple):
         images = torch.cat(image_tuple)
@@ -78,7 +80,7 @@ class GCBCAgent(nn.Module):
         else:
             goal_img = goal_img.to(self.fixed_std.device).unsqueeze_(0)
 
-        dist = self.forward(None, obs_img, goal_img, None).pred_dist
+        dist = self.forward(None, obs_img, goal_img, None)[0]
 
         if argmax:
             actions = dist.mode
@@ -87,9 +89,10 @@ class GCBCAgent(nn.Module):
         return actions
     
     def renew_action_linear(self, action_dim):
-        hidden_dim = self.action_mean_linear.weight.data.shape[1]
-        self.action_mean_linear = nn.Linear(hidden_dim, action_dim)
-        self.register_buffer("fixed_std", torch.eye(action_dim))
+        if action_dim != self.action_dim:
+            hidden_dim = self.action_mean_linear.weight.data.shape[1]
+            self.action_mean_linear = nn.Linear(hidden_dim, action_dim)
+            self.register_buffer("fixed_std", torch.eye(action_dim))
 
     def set_feature_layers_require_grad(self, flag: bool):
         self.encoder.requires_grad_(flag)

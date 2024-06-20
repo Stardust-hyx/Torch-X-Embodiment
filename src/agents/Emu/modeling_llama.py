@@ -36,6 +36,7 @@ def smart_tokenizer_and_embedding_resize(
         tokenizer: transformers.PreTrainedTokenizer,
         model: transformers.PreTrainedModel,
         resize_output: bool = True,
+        phrases: Optional[List[str]] = None,
 ):
     """Resize tokenizer and embedding.
 
@@ -43,6 +44,22 @@ def smart_tokenizer_and_embedding_resize(
     """
     num_new_tokens = tokenizer.add_special_tokens(special_tokens_dict)
     model.resize_token_embeddings(len(tokenizer))
+
+    if num_new_tokens > 0 and phrases:
+        assert num_new_tokens == len(phrases)
+        input_embeddings = model.get_input_embeddings().weight.data
+        input_embeddings_avg = input_embeddings[:-num_new_tokens].mean(dim=0)
+        for i, phrase in enumerate(phrases):
+            ids = tokenizer.convert_tokens_to_ids(tokenizer.tokenize(phrase))
+            input_embeddings[-(num_new_tokens-i)] = (input_embeddings_avg + input_embeddings[ids].mean(dim=0))/2
+
+        if resize_output:
+            output_embeddings = model.get_output_embeddings().weight.data
+            output_embeddings_avg = output_embeddings[:-num_new_tokens].mean(dim=0)
+            for i, phrase in enumerate(phrases):
+                ids = tokenizer.convert_tokens_to_ids(tokenizer.tokenize(phrase))
+                output_embeddings[-(num_new_tokens-i)] = (output_embeddings_avg + output_embeddings[ids].mean(dim=0))/2
+        return
 
     if num_new_tokens > 0:
         input_embeddings = model.get_input_embeddings().weight.data
@@ -58,7 +75,8 @@ def smart_tokenizer_and_embedding_resize(
 @dataclass
 class RegressCausalLMOutputWithPast(CausalLMOutputWithPast):
     llm_loss: Optional[torch.FloatTensor] = None
-    regression_loss: Optional[torch.FloatTensor] = None
+    img_regress_loss: Optional[torch.FloatTensor] = None
+    image_feature: Optional[torch.FloatTensor] = None
     action_feature: Optional[torch.FloatTensor] = None
 
 
@@ -75,11 +93,11 @@ class LlamaForReg(transformers.LlamaForCausalLM):
                 output_hidden_states: Optional[bool] = None,
                 return_dict: Optional[bool] = None,
                 reduction: Optional[str] = "mean",
-                regress_mask: torch.Tensor = None,
                 img_length: int = None,
                 args=None,
-                regress_labels=None,
                 action_mask: torch.Tensor = None,
+                regress_mask: torch.Tensor = None,
+                regress_labels: torch.Tensor = None,
             ) -> RegressCausalLMOutputWithPast:
         """
         :param self:
@@ -121,9 +139,24 @@ class LlamaForReg(transformers.LlamaForCausalLM):
             loss = loss_fct(shift_logits.view(-1, self.config.vocab_size), shift_labels.view(-1))
             if reduction == "none":
                 loss = loss.view(logits.size(0), -1).mean(1)
+        
+
+        regress_feature = hidden_states[regress_mask]
+        regress_feature = self.stu_regress_head(regress_feature)
+
+        B, _, C = hidden_states.shape
+        
+        image_regress_loss = None
+        if self.training or args.check_loss_when_eval:
+            image_regress_loss = torch.nn.functional.mse_loss(regress_feature, regress_labels)
+            
+        image_feature = torch.clone(regress_feature).detach()
+        image_feature = image_feature.reshape((B, -1, img_length+1, C))[:, :, :img_length].reshape((-1, img_length, C))
 
         return RegressCausalLMOutputWithPast(
             llm_loss=loss,
+            img_regress_loss=image_regress_loss,
+            image_feature=image_feature,
             action_feature=action_feature,
             logits=logits,
             past_key_values=outputs.past_key_values,
@@ -198,6 +231,7 @@ class LLaMAForClsAndRegression(nn.Module):
             special_tokens_dict={"additional_special_tokens": special_token_list},
             tokenizer=self.tokenizer,
             model=self.lm,
+            phrases=["action", "action", "Action"]
         )
         # self.lm.get_input_embeddings().weight.requires_grad_(True)
         print(f"The Special Tokens: {self.tokenizer.special_tokens_map}")
@@ -228,71 +262,77 @@ class LLaMAForClsAndRegression(nn.Module):
         """
         _, n_causal, _ = image_embeds.shape
 
-        # mask [PAD]
-        targets = text_input.masked_fill(
-            text_input == self.tokenizer.pad_token_id, -100
-        )
-        # mask <image>
-        targets = targets.masked_fill(
-            targets == self.image_token_id, -100
-        )
-        # mask [IMG]
-        targets = targets.masked_fill(
-            targets == self.img_token_id, -100
-        )
-        # mask [/IMG]
-        targets = targets.masked_fill(
-            targets == self.img_end_token_id, -100
-        )
-        # mask <action>
-        targets = targets.masked_fill(
-            targets == self.action_token_id, -100
-        )
-        # mask [ACT]
-        targets = targets.masked_fill(
-            targets == self.act_token_id, -100
-        )
-        # mask [/ACT]
-        targets = targets.masked_fill(
-            targets == self.act_end_token_id, -100
-        )
+        targets = None
+        if self.args.text_loss_weight > 0 and (self.training or self.args.check_loss_when_eval):
+            # mask [PAD]
+            targets = text_input.masked_fill(
+                text_input == self.tokenizer.pad_token_id, -100
+            )
+            # mask <image>
+            targets = targets.masked_fill(
+                targets == self.image_token_id, -100
+            )
+            # mask [IMG]
+            targets = targets.masked_fill(
+                targets == self.img_token_id, -100
+            )
+            # mask [/IMG]
+            targets = targets.masked_fill(
+                targets == self.img_end_token_id, -100
+            )
+            # mask <action>
+            targets = targets.masked_fill(
+                targets == self.action_token_id, -100
+            )
+            # mask [ACT]
+            targets = targets.masked_fill(
+                targets == self.act_token_id, -100
+            )
+            # mask [/ACT]
+            targets = targets.masked_fill(
+                targets == self.act_end_token_id, -100
+            )
 
-        text_embeds = self.lm.model.embed_tokens(text_input)  # [B, seq_len, C]
+        text_embeds = self.lm.model.model.embed_tokens(text_input)  # [B, seq_len, C]
 
         all_image_indices = (text_input == self.image_token_id).to(image_embeds.device)
 
-        assert (text_input[all_image_indices].shape[0] == image_embeds.shape[0] * image_embeds.shape[1]), \
-            f"{text_input[text_input == self.image_token_id].shape[0]} != {image_embeds.shape[0]}*{image_embeds.shape[1]}"
-        assert (image_embeds.shape[-1] == text_embeds.shape[-1]), f"{image_embeds.shape[-1]} != {text_embeds.shape[-1]}"
+        # assert (text_input[all_image_indices].shape[0] == image_embeds.shape[0] * image_embeds.shape[1]), \
+        #     f"{text_input[text_input == self.image_token_id].shape[0]} != {image_embeds.shape[0]}*{image_embeds.shape[1]}"
+        # assert (image_embeds.shape[-1] == text_embeds.shape[-1]), f"{image_embeds.shape[-1]} != {text_embeds.shape[-1]}"
 
         image_embeds = image_embeds.reshape(-1, image_embeds.shape[-1])
 
         text_embeds[all_image_indices] = image_embeds
-
-        regress_label_mask = ((text_input == self.image_token_id) + (text_input == self.img_end_token_id)).to(
-            image_embeds.device)
-
         B, _, C = text_embeds.shape
-        # [B*(n_causal+1)*3, C] -> [B, (n_causal+1)*3, C]
+
+        # # [B*(n_causal+1)*X, C] -> [B, (n_causal+1)*X, C]
+        # regress_labels = text_embeds[regress_label_mask]
+        # assert regress_labels.shape[0] % (B*(n_causal+1)) == 0, f"{regress_labels.shape} != [{B}*{n_causal+1}*X, {C}]"
+        # # [B*(n_causal+1)*(X-1), C]
+        # regress_labels = regress_labels.reshape((B, -1, C))[:, n_causal+1:].reshape((-1, C))
+        
+        regress_mask = ((text_input == self.image_token_id) + (text_input == self.img_token_id)).to(image_embeds.device)
+        regress_mask = regress_mask & (torch.cumsum(regress_mask, dim=1) > n_causal+1)
+        
+        # regress_label_mask = ((text_input == self.image_token_id) + (text_input == self.img_end_token_id)).to(image_embeds.device)
+        # regress_label_mask = regress_label_mask & (torch.cumsum(regress_label_mask, dim=1) > n_causal+1)
+        regress_label_mask = regress_mask.roll(shifts=1, dims=1)
         regress_labels = text_embeds[regress_label_mask]
-        assert regress_labels.shape == torch.Size([B*(n_causal+1)*3, C]), f"{regress_labels} != [{B}*{n_causal+1}*3, {C}]"
-        # [B*(n_causal+1)*2, C]
-        regress_labels = regress_labels.reshape((B, (n_causal+1)*3, C))[:, n_causal+1:].reshape((-1, C))
-        # regress_mask = ((text_input == self.image_token_id) + (text_input == self.img_token_id)).to(image_embeds.device)
 
         # action_mask = ((text_input == self.action_token_id) + (text_input == self.act_token_id)).to(image_embeds.device)
-        action_mask = (text_input == self.action_token_id).to(image_embeds.device)
+        action_mask = (text_input == self.action_token_id).roll(shifts=-1, dims=1).to(image_embeds.device)
 
         outputs = self.lm.forward(
             inputs_embeds=text_embeds,
             attention_mask=text_mask,
             return_dict=True,
             labels=targets,
-            # regress_mask=regress_mask,
             img_length=n_causal,
             args=self.args,
+            action_mask=action_mask,
+            regress_mask=regress_mask,
             regress_labels=regress_labels.detach(),
-            action_mask=action_mask
         )
         return outputs
 
