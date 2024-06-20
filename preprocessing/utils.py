@@ -18,7 +18,26 @@ DATASETS = [
     "austin_buds_dataset_converted_externally_to_rlds", # 1.5GB, high quality
     # "nyu_franka_play_dataset_converted_externally_to_rlds", # 5.2GB, low-quality language instruction ("play with the kitchen")
     "maniskill_dataset_converted_externally_to_rlds", # 151GB, low-quality language instruction
+    "austin_sailor_dataset_converted_externally_to_rlds",
+    "berkeley_rpt_converted_externally_to_rlds"
 ]
+
+
+# TODO
+# def bridge_preprocess(episode):
+#     list_obs_image = np.array([step['observation']['image_0'] for step in episode])
+#     list_instruct = [step['language_instruction'] for step in episode]
+#     assert all(inst == list_instruct[0] for inst in list_instruct)
+#     list_actions = np.array([step['action'] for step in episode])
+#     movement_actions = list_actions[:-1, :6]
+#     gripper_actions = list_actions[:-1, 6]
+#     return {
+#         'robot_and_gripper': ['WidowX', 'WidowX_Default'],
+#         'instruction': list_instruct[0].numpy().decode('utf-8'),
+#         'obs_images': list_obs_image,
+#         'movement_actions': movement_actions,
+#         'gripper_actions': gripper_actions,
+#     }
 
 def taco_play_preprocess(episode):
     list_obs_image = np.array([step['observation']['rgb_static'] for step in episode])
@@ -161,13 +180,16 @@ def austin_buds_preprocess(episode):
     list_obs_image = np.array([step['observation']['image'] for step in episode])
     list_instruct = [step['language_instruction'] for step in episode]
     assert all(inst == list_instruct[0] for inst in list_instruct)
+    instruction = list_instruct[0].numpy().decode('utf-8')
+    assert instruction == "Take the lid off the pot, put the pot on the plate, and use the tool to push to pot to the front of the table."
+    instruction = "Take the lid off the pot, put the pot on the plate and use a tool to push the pot to table's front."
     list_actions = np.array([step['action'] for step in episode])
     movement_actions = list_actions[:-1, :6]
     # -1 is open gripper, 1 is closed gripper
     gripper_actions = list_actions[:-1, 6]
     return {
         'robot_and_gripper': ['Franka', 'Franka_Default'],
-        'instruction': list_instruct[0].numpy().decode('utf-8'),
+        'instruction': instruction,
         'obs_images': list_obs_image,
         'movement_actions': movement_actions,
         'gripper_actions': gripper_actions,

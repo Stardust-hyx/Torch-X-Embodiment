@@ -131,7 +131,7 @@ def convert_dataset(in_dir, out_dir, gif_dir, log_dir, debug, args):
         print(f"movement_actions:\n{traj['movement_actions']}", file=log_f)
         print(f"gripper_actions:\n{traj['gripper_actions']}", file=log_f)
         print(flush=True, file=log_f)
-        if i < 5 and gif_dir:
+        if i < 3 and gif_dir:
             # for manually checking
             images = [Image.fromarray(image) for image in traj['obs_images']]
             gif_path = os.path.join(gif_dir, dataset_name, split_name)
