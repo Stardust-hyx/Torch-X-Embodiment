@@ -1,0 +1,20 @@
+deepspeed --include localhost:0,1,2,3,4,5 --master_port 29900 ./src/train.py \
+    --data_dir $HYXDIR/np_datasets \
+    --sample_weights balance \
+    --num_workers 6 \
+    --method gc_bc \
+    --train_batch_size 288 \
+    --gradient_accumulation_steps 4 \
+    --eval_batch_size 256 \
+    --max_lr 1e-4 \
+    --min_lr 5e-6 \
+    --max_grad_norm 10 \
+    --steps 150000 \
+    --warmup_steps 10000 \
+    --warmup_type linear \
+    --log_interval 2000 \
+    --eval_interval 5000 \
+    --save_interval 5000 \
+    --start_save 100000 \
+    --save_dir $HYXDIR/save_gcbc/gcbc_pretrain \
+    --random_seed 41

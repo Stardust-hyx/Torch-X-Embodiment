@@ -1,0 +1,23 @@
+deepspeed --include localhost:0,1 ./src/train.py \
+    --data_dir $HYXDIR/np_datasets \
+    --benchmarks task_ABCD \
+    --use_history True \
+    --num_workers 10 \
+    --prompt_type rt1_default \
+    --dtype bf16 \
+    --text_enc $HYXDIR/huggingface/bge-base-en-v1.5 \
+    --method rt1 \
+    --train_batch_size 144 \
+    --gradient_accumulation_steps 2 \
+    --eval_batch_size 96 \
+    --max_lr 5e-5 \
+    --min_lr 1e-6 \
+    --weight_decay 0.001 \
+    --steps 20000 \
+    --warmup_steps 8000 \
+    --log_interval 1000 \
+    --eval_interval 500 \
+    --save_interval 500 \
+    --start_save 15000 \
+    --save_dir $HYXDIR/save_rt1/rt1_wo_pretrain \
+    --random_seed 42

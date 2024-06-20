@@ -1,0 +1,23 @@
+deepspeed --include localhost:0,1,2,3,4,5 --master_port 29950 ./src/train.py \
+    --data_dir $HYXDIR/np_datasets \
+    --benchmarks task_ABCD,task_ABCD_rerender \
+    --goal_relabeling_strategy last_k_uniform \
+    --goal_relabel_offset 8 \
+    --goal_relabel_future_step 2 \
+    --num_workers 10 \
+    --method gc_bc \
+    --train_batch_size 216 \
+    --gradient_accumulation_steps 3 \
+    --eval_batch_size 64 \
+    --max_lr 8e-5 \
+    --min_lr 1e-6 \
+    --steps 20000 \
+    --warmup_steps 8000 \
+    --warmup_type linear \
+    --log_interval 1000 \
+    --eval_interval 500 \
+    --save_interval 500 \
+    --start_save 15000 \
+    --save_dir $HYXDIR/save_gcbc/gcbc_pretrain_finetune \
+    --pretrain_ckpt_path $HYXDIR/save_gcbc/gcbc_pretrain/150000/mp_rank_00_model_states.pt \
+    --random_seed 41
