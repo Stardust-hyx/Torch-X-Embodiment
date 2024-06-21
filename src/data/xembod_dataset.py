@@ -233,9 +233,7 @@ class XEmbodDatasetTorch(IterableDataset):
                     num_transitions = num_transitions // self.num_frames
                 else:
                     num_transitions = num_transitions - self.num_frames + 1
-                if num_transitions <= 0:
-                    print(traj_name)
-                    exit(0)
+                assert num_transitions > 0
 
             ds_name = traj_name.split('-')[0]
             if self.is_train and ds_name in self.hard_tasks:
