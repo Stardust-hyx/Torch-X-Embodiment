@@ -2,7 +2,7 @@ import os
 import torch
 from torchvision.transforms import v2
 import numpy as np
-import pickle, json
+import pickle, json, shutil
 import argparse
 from PIL import Image
 
@@ -216,6 +216,8 @@ def convert(env, task_oracle, in_dir, out_dir, img_size=224):
     }
     action_meta_f = open(os.path.join(out_dir, 'ori_action_meta.json'), 'w')
     json.dump(action_meta, action_meta_f, indent=2)
+    without_rerender_dir = out_dir[:len('_rerender')]
+    shutil.copy(os.path.join(without_rerender_dir, 'action_meta.json'), os.path.join(out_dir, 'action_meta.json'))
 
     num_transitions_f = open(os.path.join(out_dir, 'num_transitions.json'), 'w')
     json.dump(num_transitions, num_transitions_f, indent=2)
@@ -237,6 +239,8 @@ if __name__ == '__main__':
 
     in_dir = args.in_dir
     out_dir = args.out_dir
+    assert out_dir.endswith('_rerender')
+    assert os.path.exists(out_dir[:len('_rerender')])
 
     env_conf_dir = os.path.join(in_dir, "training")
     env = get_env(env_conf_dir, show_gui=False)
