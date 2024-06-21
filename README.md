@@ -215,6 +215,8 @@ CUDA_VISIBLE_DEVICES=0 python src/eval_calvin_LH.py \
 
 |                            |   1   |   2   |   3   |   4   |   5   |
 | -------------------------- | ----- | ----- | ----- | ----- | ----- |
+| [3D-VLA](https://arxiv.org/abs/2403.09631) | 44.7% | 16.3% | 8.1% | 1.6% | 0.0% |
+|                                                                    |
 | RT-1 (w/o pretrain)        | 83.0% | 51.0% | 29.8% | 13.5% |  7.0% |
 | RT-1 (joint-train)         |       |       |       |       |       |
 | RT-1 (pretrain-fintune)    |       |       |       |       |       |
