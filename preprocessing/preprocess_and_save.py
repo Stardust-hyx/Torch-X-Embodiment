@@ -13,9 +13,9 @@ from absl import app, flags
 from utils import DATASETS, PREPROCESS_FUNCTIONS
 
 FLAGS = flags.FLAGS
-flags.DEFINE_string("in_dir", "/data1/hyx/ts_datasets/",
+flags.DEFINE_string("in_dir", "/home/data/hyx/tf_datasets/",
                     "where you put datasets downloaded from gs://gresearch/robotics/")
-flags.DEFINE_string("out_dir", "/data1/hyx/np_datasets/",
+flags.DEFINE_string("out_dir", "/home/data/hyx/np_datasets/",
                     "where to put processed datasets")
 flags.DEFINE_integer("img_size", 224,
                     "desired image size")
@@ -44,7 +44,7 @@ def transform_imgs(imgs, tgt_size):
     return imgs
 
 def dataset2path(data_dir, dataset_name):
-    if dataset_name == 'robo_net':
+    if dataset_name in ['robo_net', 'bridge']:
         version = '1.0.0'
     elif dataset_name == 'language_table':
         version = '0.0.1'
@@ -54,7 +54,7 @@ def dataset2path(data_dir, dataset_name):
 
 def save_as_gif(images, path='temp.gif'):
     # Render the images as gif and save:
-    images[0].save(path, save_all=True, append_images=images[1:], duration=300, loop=0)
+    images[0].save(path, save_all=True, append_images=images[1:], duration=100, loop=0)
 
 def set_gpu_memory():
     import tensorflow as tf
@@ -70,7 +70,7 @@ def set_gpu_memory():
 
 def convert_dataset(in_dir, out_dir, gif_dir, log_dir, debug, args):
     dataset_name, split_name = args
-    set_gpu_memory()
+    # set_gpu_memory()
 
     dataset_path = dataset2path(in_dir, dataset_name)
     # skip non-existent dataset
@@ -93,7 +93,13 @@ def convert_dataset(in_dir, out_dir, gif_dir, log_dir, debug, args):
     log_f = open(os.path.join(log_dir, f'{dataset_name}-{split_name}.log'), 'w')
     
     if debug:
-        ds = b.as_dataset(split=f'{split_name}[:10]')
+        try:
+            ds = b.as_dataset(split=f'{split_name}[:10]')
+        except:
+            if split_name=='test' and 'val' in all_splits:
+                ds = b.as_dataset(split='val[:10]')
+            else:
+                ds = b.as_dataset(split='train[-10:]')
     elif len(all_splits) == 1:
         print(f'Only one split {all_splits} is found in {dataset_name}, automatically divding into two splits!')
         whole_split = all_splits[0]
@@ -119,11 +125,12 @@ def convert_dataset(in_dir, out_dir, gif_dir, log_dir, debug, args):
         print(f"{i}\ninstruction: {traj['instruction']}", file=log_f)
         # discard traj with only 1 observation and 0 transition
         # also discard traj with undesired instruction (like the ones in the maniskill dataset)
-        if len(traj['movement_actions']) == 0:
+        if len(traj['movement_actions']) == 0 or traj['instruction'].strip() == '':
             print(f"Invalid trajectory!", file=log_f)
             print(flush=True, file=log_f)
             num_invalid_traj += 1
             continue
+        assert len(traj['obs_images'])-1 == len(traj['movement_actions']) == len(traj['gripper_actions'])
 
         # for computing the mean and std of actions
         all_movement_actions.append(traj['movement_actions'])
@@ -131,7 +138,7 @@ def convert_dataset(in_dir, out_dir, gif_dir, log_dir, debug, args):
         print(f"movement_actions:\n{traj['movement_actions']}", file=log_f)
         print(f"gripper_actions:\n{traj['gripper_actions']}", file=log_f)
         print(flush=True, file=log_f)
-        if i < 3 and gif_dir:
+        if i < 10 and gif_dir:
             # for manually checking
             images = [Image.fromarray(image) for image in traj['obs_images']]
             gif_path = os.path.join(gif_dir, dataset_name, split_name)
