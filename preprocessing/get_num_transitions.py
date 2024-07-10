@@ -2,20 +2,25 @@ import os
 import pickle
 import json
 
-# data_dir = "/vepfs-cnsh4137610c2f4c/algo/user8/hyx/np_datasets"
-# ds_names = None
+data_dir = "/home/data/hyx/np_datasets"
+ds_names = None
 
 # data_dir = "/home/data/hyx/r3m_data"
 # ds_names = ['_Franka_Kitchen_left_cap2', '_Franka_Kitchen_right_cap2']
 
-data_dir = "/data/calvin/dataset"
-ds_names = ['task_D']
+# data_dir = "/data/calvin/dataset"
+# ds_names = ['task_D']
 
 if ds_names is None:
     ds_names = os.listdir(data_dir)
 
 for ds_name in ds_names:
-    print(ds_name)
+    out_fpath = os.path.join(data_dir, ds_name, 'num_transitions.json')
+    if os.path.exists(out_fpath):
+        print(f'Skip {ds_name}')
+        continue
+    else:
+        print(f'Processing {ds_name}...')
     traj_name_2_num_transitions = dict()
     for split_name in ['train', 'test']:
         total_transitions = 0
@@ -30,6 +35,6 @@ for ds_name in ds_names:
         assert f"{ds_name}-{split_name}" not in traj_name_2_num_transitions
         traj_name_2_num_transitions[f"{ds_name}-{split_name}"] = total_transitions
 
-    out_fpath = os.path.join(data_dir, ds_name, 'num_transitions.json')
+    
     with open(out_fpath, 'w') as f:
         json.dump(traj_name_2_num_transitions, f, indent=2)

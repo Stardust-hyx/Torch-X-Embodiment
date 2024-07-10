@@ -1,4 +1,7 @@
 import numpy as np
+import tensorflow as tf
+import tensorflow_graphics.geometry.transformation as tft
+from scipy.spatial.transform import Rotation
 
 DATASETS = [
     # 'fractal20220817_data',
@@ -6,22 +9,24 @@ DATASETS = [
     'bridge',   # 124GB, Original Version of Bridge V2 from Project Website
     'taco_play', # 48GB, low-quality obs image (occlusion happens frequently)
     # 'jaco_play',
-    'berkeley_cable_routing', # 4.7GB, low-quality language instruction ("route cable")
+    'berkeley_cable_routing', # 4.7GB, low-quality language instruction ("route cable"), velocity action!
     # 'roboturk', # 45GB, low-quality instruction ("object search", "layout laundry", "create tower")
     # 'nyu_door_opening_surprising_effectiveness',
     'viola', # 10GB, high control frequency and many redundant actions in demonstration
     'berkeley_autolab_ur5', # 76GB, high quality
     'toto', # 127GB, low-quality language instruction ("pour"), high control frequency
     # 'language_table',
-    # The datasets above were used in the paper 'Open X-Embodiment: Robotic Learning Datasets and RT-X Models>'.
+    # The datasets above were used in the paper 'Open X-Embodiment: Robotic Learning Datasets and RT-X Models'.
     "stanford_hydra_dataset_converted_externally_to_rlds", # 72.5GB, high quality
     "austin_buds_dataset_converted_externally_to_rlds", # 1.5GB, high quality
-    # "nyu_franka_play_dataset_converted_externally_to_rlds", # 5.2GB, low-quality language instruction ("play with the kitchen")
+    # "nyu_franka_play_dataset_converted_externally_to_rlds", # 5.2GB, only one instruction (play with the kitchen)!
     "maniskill_dataset_converted_externally_to_rlds", # 151GB, low-quality language instruction
-    "austin_sailor_dataset_converted_externally_to_rlds",
-    "berkeley_rpt_converted_externally_to_rlds",
+    "austin_sailor_dataset_converted_externally_to_rlds", # 19GB, velocity action!
+    "austin_sirius_dataset_converted_externally_to_rlds", # 6.6GB, velocity action!
+    "iamlab_cmu_pickup_insert_converted_externally_to_rlds", # 51GB, strange action space!
+    # "utaustin_mutex", # 21GB, detailed instructions that are too long, need paraphrase!
     "berkeley_fanuc_manipulation", # 8.9GB, high quality
-    # "bc_z", # 81GB, low quality, do not use it
+    # "bc_z", # 81GB, low quality, do not use it!
 ]
 
 
@@ -275,6 +280,87 @@ def language_table_preprocess(episode):
         'gripper_actions': gripper_actions,
     }
 
+def austin_sailor_preprocess(episode):
+    list_obs_image = np.array([step['observation']['image'] for step in episode])
+    list_instruct = [step['language_instruction'] for step in episode]
+    assert all(inst == list_instruct[0] for inst in list_instruct)
+    inst = list_instruct[0].numpy().decode('utf-8')
+    if inst == 'Interact with the objects in diverse but meaningful ways.':
+        return {
+            'instruction': inst,
+            'movement_actions': [],
+        }
+    list_actions = np.array([step['action'] for step in episode])
+    movement_actions = list_actions[:-1, :6]
+    # 1 is closed gripper, -1 is open gripper
+    gripper_actions = list_actions[:-1, 6]
+    return {
+        'robot_and_gripper': ['Franka', 'Franka_Default'],
+        'instruction': inst,
+        'obs_images': list_obs_image,
+        'movement_actions': movement_actions,
+        'gripper_actions': gripper_actions,
+    }
+
+def austin_sirius_preprocess(episode):
+    list_obs_image = np.array([step['observation']['image'] for step in episode])
+    list_instruct = [step['language_instruction'] for step in episode]
+    assert all(inst == list_instruct[0] for inst in list_instruct)
+    list_actions = np.array([step['action'] for step in episode])
+    movement_actions = list_actions[:-1, :6]
+    # 1 is closed gripper, -1 is open gripper
+    gripper_actions = list_actions[:-1, 6]
+    gripper_actions = np.where(gripper_actions<0, -1.0, 1.0)
+    return {
+        'robot_and_gripper': ['Franka', 'Franka_Default'],
+        'instruction': list_instruct[0].numpy().decode('utf-8'),
+        'obs_images': list_obs_image,
+        'movement_actions': movement_actions,
+        'gripper_actions': gripper_actions,
+    }
+
+def iamlab_cmu_pickup_insert_preprocess(episode):
+    list_obs_image = np.array([step['observation']['image'] for step in episode])
+    list_instruct = [step['language_instruction'] for step in episode]
+    assert all(inst == list_instruct[0] for inst in list_instruct)
+    inst = list_instruct[0].numpy().decode('utf-8')
+    inst = inst.replace('greeen', 'green')
+    list_actions = np.array([step['action'] for step in episode])
+    movement_actions = np.concatenate(
+        [list_actions[:-1, :3], Rotation.from_quat(list_actions[:-1, 3:7]).as_euler('xyz')],
+        axis=-1,
+    )
+    # 0 is closed gripper, 1 is open gripper
+    gripper_actions = list_actions[:-1, 7]
+    # centralize and reverse, so that -1 is open gripper, 1 is closed gripper
+    gripper_actions = -(gripper_actions-0.5) * 2
+    return {
+        'robot_and_gripper': ['Franka', 'Franka_Default'],
+        'instruction': inst,
+        'obs_images': list_obs_image,
+        'movement_actions': movement_actions,
+        'gripper_actions': gripper_actions,
+    }
+
+def utaustin_mutex_preprocess(episode):
+    list_obs_image = np.array([step['observation']['image'] for step in episode])
+    list_instruct = [step['language_instruction'] for step in episode]
+    assert all(inst == list_instruct[0] for inst in list_instruct)
+    inst = list_instruct[0].numpy().decode('utf-8')
+    # TODO
+    # paraphrase the detailed instructions into a sentence
+    list_actions = np.array([step['action'] for step in episode])
+    movement_actions = list_actions[:-1, :6]
+    # 1 is closed gripper, -1 is open gripper
+    gripper_actions = list_actions[:-1, 6]
+    return {
+        'robot_and_gripper': ['Franka', 'Franka_Default'],
+        'instruction': inst,
+        'obs_images': list_obs_image,
+        'movement_actions': movement_actions,
+        'gripper_actions': gripper_actions,
+    }
+
 def berkeley_fanuc_manipulation_preprocess(episode):
     list_obs_image = np.array([step['observation']['image'] for step in episode])
     list_instruct = [step['language_instruction'] for step in episode]
@@ -332,6 +418,10 @@ PREPROCESS_FUNCTIONS = {
     "austin_buds_dataset_converted_externally_to_rlds": austin_buds_preprocess,
     "nyu_franka_play_dataset_converted_externally_to_rlds": nyu_franka_play_preprocess,
     "maniskill_dataset_converted_externally_to_rlds": maniskill_preprocess,
+    "austin_sailor_dataset_converted_externally_to_rlds": austin_sailor_preprocess,
+    "austin_sirius_dataset_converted_externally_to_rlds": austin_sirius_preprocess,
+    "iamlab_cmu_pickup_insert_converted_externally_to_rlds": iamlab_cmu_pickup_insert_preprocess,
+    "utaustin_mutex": utaustin_mutex_preprocess,
     "berkeley_fanuc_manipulation": berkeley_fanuc_manipulation_preprocess,
     "bc_z": bc_z_preprocess,
 }
