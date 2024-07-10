@@ -1,6 +1,4 @@
 import numpy as np
-import tensorflow as tf
-import tensorflow_graphics.geometry.transformation as tft
 from scipy.spatial.transform import Rotation
 
 DATASETS = [
