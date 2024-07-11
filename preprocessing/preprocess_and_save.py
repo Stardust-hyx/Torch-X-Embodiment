@@ -17,7 +17,7 @@ flags.DEFINE_string("in_dir", "/home/data/hyx/tf_datasets/",
                     "where you put datasets downloaded from gs://gresearch/robotics/")
 flags.DEFINE_string("out_dir", "/home/data/hyx/np_datasets/",
                     "where to put processed datasets")
-flags.DEFINE_integer("img_size", 224,
+flags.DEFINE_integer("img_size", 256,
                     "desired image size")
 flags.DEFINE_string("gif_dir", "gif",
                     "where to put gif images for checking")
