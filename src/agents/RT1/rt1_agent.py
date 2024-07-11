@@ -238,7 +238,7 @@ class RT1Agent(nn.Module):
         action_mask = action_mask.to(self._default_attention_mask.device)
         self._default_attention_mask -= action_mask
 
-    def forward(self, prompts, obs_imgs, goal_imgs, feature_imgs):
+    def forward(self, ds_names, prompts, obs_imgs, goal_imgs, feature_imgs):
         """Calls the transformer network.
 
         Args:
@@ -290,7 +290,7 @@ class RT1Agent(nn.Module):
         return (dist,)
     
     @torch.no_grad()
-    def sample_actions(self, prompt, obs_img, pre_context_image_tokens=None, argmax=True):
+    def sample_actions(self, ds_name, prompt, obs_img, pre_context_image_tokens=None, argmax=True):
         if not isinstance(obs_img, torch.Tensor):
             obs_img = torch.tensor(obs_img, device=self.fixed_std.device).unsqueeze_(0)
         else:

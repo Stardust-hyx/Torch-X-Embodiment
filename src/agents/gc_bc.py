@@ -36,7 +36,10 @@ class GCBCAgent(nn.Module):
         )
 
         self.action_dim = action_dim
-        self.action_mean_linear = nn.Linear(hidden_dim, action_dim)
+        # self.action_mean_linear = nn.Linear(hidden_dim, action_dim)
+        # TODO
+        # self.ds_2_action_interval = {k: (action_dim*i, action_dim*(i+1)) for i, k in enumerate(args.datasets)}
+        # self.action_mean_linear = nn.Linear(hidden_dim, action_dim*len(args.datasets))
 
         self.augment = args.augment
         self.augment_kwargs = args.augment_kwargs
@@ -45,7 +48,7 @@ class GCBCAgent(nn.Module):
 
         self.register_buffer("fixed_std", torch.eye(action_dim))
 
-    def forward(self, prompts, obs_imgs, goal_imgs, feature_imgs) -> GCBCAgentOutput:
+    def forward(self, ds_names, prompts, obs_imgs, goal_imgs, feature_imgs) -> GCBCAgentOutput:
         obs_imgs = obs_imgs.to(self.fixed_std.device)
         goal_imgs = goal_imgs.to(self.fixed_std.device)
 
@@ -57,6 +60,11 @@ class GCBCAgent(nn.Module):
         outputs = self.mlp(self.encoder(observation_and_goal))
 
         means = self.action_mean_linear(outputs)
+        # TODO
+        # means = torch.cat(
+        #     [means[i, self.ds_2_action_interval[x][0]:self.ds_2_action_interval[x][1]] for i, x in enumerate(ds_names)],
+        #     dim=0
+        # )
 
         dist = MultivariateNormal(means, scale_tril=self.fixed_std)
         # return GCBCAgentOutput(
@@ -70,7 +78,7 @@ class GCBCAgent(nn.Module):
         return torch.chunk(images, chunks=len(image_tuple))
     
     @torch.no_grad()
-    def sample_actions(self, obs_img, goal_img, argmax=True):
+    def sample_actions(self, ds_name, obs_img, goal_img, argmax=True):
         if not isinstance(obs_img, torch.Tensor):
             obs_img = torch.tensor(obs_img, device=self.fixed_std.device).unsqueeze_(0)
         else:
@@ -80,7 +88,7 @@ class GCBCAgent(nn.Module):
         else:
             goal_img = goal_img.to(self.fixed_std.device).unsqueeze_(0)
 
-        dist = self.forward(None, obs_img, goal_img, None)[0]
+        dist = self.forward([ds_name], None, obs_img, goal_img, None)[0]
 
         if argmax:
             actions = dist.mode

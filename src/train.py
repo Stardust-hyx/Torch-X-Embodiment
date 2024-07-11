@@ -6,7 +6,7 @@ import torch
 import torch.distributed as dist
 import deepspeed
 import datetime
-# from deepspeed.utils import RepeatingLoader
+from collections import defaultdict
 
 os.environ['TOKENIZERS_PARALLELISM'] = "false"
 
@@ -21,19 +21,17 @@ def evaluate(args, engine: deepspeed.DeepSpeedEngine, eval_dataset, criterion):
     
     eval_dataloader = torch.utils.data.DataLoader(eval_dataset, batch_size=args.eval_batch_size, num_workers=args.num_workers)
 
-    log_probs, mse, pi_actions, cnt = 0, 0, 0, 0
-    text_loss = 0.0
-    image_reg_loss = 0.0
-    image_gen_loss = 0.0
+    scores = defaultdict(float)
+    cnt = 0
     with torch.no_grad():
         for data in eval_dataloader:
-            (prompts, obs_imgs, goal_imgs, feature_imgs, actions) = data
+            (ds_names, prompts, obs_imgs, goal_imgs, future_imgs, actions) = data
             if not(args.method=='gc_bc' or args.prompt_type in ['emu_default', 'emu_wo_future']):
                 goal_imgs = None
             if not (args.prompt_type in ['emu_default', 'emu_wo_goal']):
-                feature_imgs = None
+                future_imgs = None
 
-            outputs = engine(prompts, obs_imgs, goal_imgs, feature_imgs)
+            outputs = engine(ds_names, prompts, obs_imgs, goal_imgs, future_imgs)
             actions = actions.to(engine.device)
             _, info = criterion(outputs[0], actions)
             try:
@@ -41,27 +39,18 @@ def evaluate(args, engine: deepspeed.DeepSpeedEngine, eval_dataset, criterion):
             except:
                 txt_loss, img_reg_loss, img_gen_loss = 0, 0, 0
 
-            log_probs += info['log_probs']
-            mse += info['mse']
-            pi_actions += info['pi_actions']
+            for k, v in info.items():
+                scores[k] += v
             if args.text_loss_weight > 0 and args.check_loss_when_eval:
-                text_loss += txt_loss.item()
+                scores["L_txt"] += txt_loss.item()
             if args.img_loss_weight > 0 and args.check_loss_when_eval:
-                image_reg_loss += img_reg_loss.item()
-                image_gen_loss += img_gen_loss.item()
+                scores["L_img_reg"] += img_reg_loss.item()
+                scores["L_img_gen"] += img_gen_loss.item()
 
             cnt += 1
 
-    scores = {
-        "log_p": log_probs/cnt,
-        "mse": mse/cnt,
-        "pi_act": pi_actions/cnt,
-    }
-    if args.text_loss_weight > 0 and args.check_loss_when_eval:
-        scores["L_txt"] = text_loss/cnt
-    if args.img_loss_weight > 0 and args.check_loss_when_eval:
-        scores["L_img_reg"] = image_reg_loss/cnt
-        scores["L_img_gn"] = image_gen_loss/cnt
+    for k in scores:
+        scores[k] /= cnt
 
     print(f"[Rank {rank}] {scores}", flush=True)
     torch.cuda.empty_cache()
@@ -84,8 +73,6 @@ def train(args, engine: deepspeed.DeepSpeedEngine, criterion, train_dataset, eva
     text_loss = 0.0
     image_reg_loss = 0.0
     image_gen_loss = 0.0
-    # # shuffle train dataset at the begining of each epoch
-    # train_dataset.shuffle(seed=args.random_seed)
 
     dataloader = torch.utils.data.DataLoader(
         train_dataset,
@@ -93,7 +80,6 @@ def train(args, engine: deepspeed.DeepSpeedEngine, criterion, train_dataset, eva
         num_workers=args.num_workers,
     )
     # allow for infinite iteration
-    # dataloader = RepeatingLoader(dataloader)
     dataloader = RepeatingLoader(dataloader, args.random_seed)
 
     dist.barrier()
@@ -112,13 +98,13 @@ def train(args, engine: deepspeed.DeepSpeedEngine, criterion, train_dataset, eva
                 print(f'[Step {step}] skip', flush=True)
             continue
 
-        (prompts, obs_imgs, goal_imgs, feature_imgs, actions) = data
+        (ds_names, prompts, obs_imgs, goal_imgs, future_imgs, actions) = data
         # print(prompts, flush=True)
         if not (args.method=='gc_bc' or args.prompt_type in ['emu_default', 'emu_wo_future']):
             goal_imgs = None
         if not (args.prompt_type in ['emu_default', 'emu_wo_goal']):
-            feature_imgs = None
-        outputs = engine(prompts, obs_imgs, goal_imgs, feature_imgs)
+            future_imgs = None
+        outputs = engine(ds_names, prompts, obs_imgs, goal_imgs, future_imgs)
         actions = actions.to(engine.device)
         act_loss, info = criterion(outputs[0], actions)
         try:

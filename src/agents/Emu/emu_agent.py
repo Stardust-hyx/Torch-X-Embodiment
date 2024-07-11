@@ -172,7 +172,7 @@ class EmuAgent(nn.Module):
 
         self.register_buffer("fixed_std", torch.eye(action_dim))
 
-    def forward(self, prompts, obs_imgs, goal_imgs, future_imgs) -> EmuAgentOutput:
+    def forward(self, ds_names, prompts, obs_imgs, goal_imgs, future_imgs) -> EmuAgentOutput:
         device = self.emu_encoder.ln_visual.weight.device
         dtype = self.emu_encoder.ln_visual.weight.dtype
         images, input_ids, attention_mask, goal_imgs_tgt, future_imgs_tgt = self._prepare_emu_input(prompts, obs_imgs, goal_imgs, future_imgs, device, dtype)
@@ -239,7 +239,8 @@ class EmuAgent(nn.Module):
 
     @torch.no_grad()
     def sample_actions(
-        self, prompt, obs_img, feature_for_gen_goal_img, goal_img=None, argmax=True, do_gen_goal_img=False, guidance_scale: float = 7.5,
+        self, ds_name, prompt, obs_img, feature_for_gen_goal_img, goal_img=None,
+        argmax=True, do_gen_goal_img=False, guidance_scale: float = 7.5,
     ):
         if not isinstance(obs_img, torch.Tensor):
             obs_img = torch.tensor(obs_img, device=self.fixed_std.device)
@@ -251,11 +252,11 @@ class EmuAgent(nn.Module):
                 goal_img = torch.tensor(goal_img, device=self.fixed_std.device)
             else:
                 goal_img = goal_img.to(self.fixed_std.device)
-            dist = self.forward([prompt], obs_img.unsqueeze_(0), goal_img.unsqueeze_(0), None)[0]
+            dist = self.forward([ds_name], [prompt], obs_img.unsqueeze_(0), goal_img.unsqueeze_(0), None)[0]
             gen_goal_img = None
         else:
             dist, feature_for_gen_goal_img, gen_goal_img = self.gen_goal_and_predict_act(
-                prompt, obs_img, feature_for_gen_goal_img, do_gen_goal_img, guidance_scale=guidance_scale
+                ds_name, prompt, obs_img, feature_for_gen_goal_img, do_gen_goal_img, guidance_scale=guidance_scale
             )
 
         if argmax:
@@ -266,7 +267,7 @@ class EmuAgent(nn.Module):
     
     @torch.no_grad()
     def gen_goal_and_predict_act(
-        self, prompt, obs_img, feature_for_gen_goal_img=None, do_gen_goal_img=False,
+        self, ds_name, prompt, obs_img, feature_for_gen_goal_img=None, do_gen_goal_img=False,
         placeholder: str = "[<IMG_PLH>]",
         height: int = 512, width: int = 512, num_inference_steps: int = 50, guidance_scale: float = 7.5,
     ):

@@ -210,7 +210,7 @@ class XEmbodDatasetTorch(IterableDataset):
             ):
                 if (samples_start_idx + i) != sample_idx:
                     continue
-                yield prompt, obs_img, goal_img, future_img, action
+                yield ds_name, prompt, obs_img, goal_img, future_img, action
 
                 sample_idx += self.world_size
                 if sample_idx > max_index:
