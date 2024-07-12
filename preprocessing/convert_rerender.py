@@ -39,12 +39,16 @@ def action_statistics(list_actions, log_f):
     num_transition = len(all_actions)
     actions_mean = np.mean(all_actions, axis=0).tolist()
     actions_std = np.std(all_actions, axis=0)
+    actions_q01 = np.quantile(all_actions, 0.01, axis=0).tolist()
+    actions_q99 = np.quantile(all_actions, 0.99, axis=0).tolist()
     print(f'[num_transition]: {num_transition}', file=log_f)
     print(f'[avg_len_traj]: {num_transition//num_traj}', file=log_f)
     print(f'[mean]: {actions_mean}', file=log_f)
     print(f'[std]: {actions_std.tolist()}', file=log_f)
+    print(f'[low]: {actions_q01}', file=log_f)
+    print(f'[high]: {actions_q99}', file=log_f)
     actions_std = np.where(actions_std==0, 1.0, actions_std).tolist()
-    return actions_mean, actions_std
+    return actions_mean, actions_std, actions_q01, actions_q99
 
 
 def collect_old_traj(in_dir, interval):
@@ -205,14 +209,16 @@ def convert(env, task_oracle, in_dir, out_dir, img_size=224):
     print(f'# training trajs: {train_cnt}')
     print(f'# evaluation trajs: {eval_cnt}')
     print(f'Overall Movement Actions:', file=log_f)
-    movement_action_mean, movement_action_std = action_statistics(all_movement_actions, log_f)
+    move_act_mean, move_act_std, move_act_q01, move_act_q99 = action_statistics(all_movement_actions, log_f)
     print(f'Overall Gripper Action:', file=log_f)
-    gripper_action_mean, gripper_action_std = action_statistics(all_gripper_actions, log_f)
+    grip_act_mean, grip_act_std, grip_act_q01, grip_act_q99 = action_statistics(all_gripper_actions, log_f)
     action_meta = {
-        "movement_action_mean": movement_action_mean,
-        "movement_action_std": movement_action_std,
-        "gripper_action_mean": gripper_action_mean,
-        "gripper_action_std": gripper_action_std
+        "movement_action_mean": move_act_mean,
+        "movement_action_std": move_act_std,
+        "movement_action_q01": move_act_q01,
+        "movement_action_q99": move_act_q99,
+        "gripper_action_mean": grip_act_mean,
+        "gripper_action_std": grip_act_std
     }
     action_meta_f = open(os.path.join(out_dir, 'ori_action_meta.json'), 'w')
     json.dump(action_meta, action_meta_f, indent=2)
