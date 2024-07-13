@@ -285,28 +285,33 @@ class XEmbodDatasetTorch(IterableDataset):
     def _process_actions(self, traj, ds_name):
         """ adding field 'actions' to traj """
         movement_actions = traj["movement_actions"]
-        # normalize movement actions
-        if ds_name in self.action_metadata:
-            movement_actions = (
-                movement_actions - self.action_metadata[ds_name]["movement_action_mean"]
-            ) / self.action_metadata[ds_name]["movement_action_std"]
-            # movement_actions = movement_actions / self.action_metadata[ds_name]["movement_action_std"]
-            # if self.is_train:
-            #     movement_actions += np.random.normal(scale=0.01, size=movement_actions.shape)
-
         gripper_actions = traj["gripper_actions"]
-        if len(gripper_actions.shape) == 1:
-            # do not need to normalize gripper_actions that are already binarized,
-            # just expand it for concatenation
-            gripper_actions = np.expand_dims(gripper_actions, axis=1)
-        elif ds_name in self.action_metadata:
-            # normalize gripper_actions
-            gripper_actions = (
-                gripper_actions - self.action_metadata[ds_name]["gripper_action_mean"]
-            ) / self.action_metadata[ds_name]["gripper_action_std"]
-            # gripper_actions = gripper_actions / self.action_metadata[ds_name]["gripper_action_std"]
-            # if self.is_train:
-            #     gripper_actions += np.random.normal(scale=0.01, size=gripper_actions.shape)
+
+        if self.args.normalize_type == 'normal':
+            # normalize movement actions
+            if ds_name in self.action_metadata:
+                movement_actions = (
+                    movement_actions - self.action_metadata[ds_name]["movement_action_mean"]
+                ) / self.action_metadata[ds_name]["movement_action_std"]
+
+            if len(gripper_actions.shape) == 1:
+                # do not need to normalize gripper_actions that are already binarized,
+                # just expand it for concatenation
+                gripper_actions = np.expand_dims(gripper_actions, axis=1)
+
+        elif self.args.normalize_type == 'bounds_q99':
+            # normalize movement actions
+            if ds_name in self.action_metadata:
+                low = self.action_metadata[ds_name]["movement_action_q01"]
+                high = self.action_metadata[ds_name]["movement_action_q99"]
+                movement_actions = np.clip(
+                    (movement_actions - low) / (high - low + 1e-8) * 2 - 1, -1, 1
+                )
+
+            if len(gripper_actions.shape) == 1:
+                # do not need to normalize gripper_actions that are already binarized,
+                # just expand it for concatenation
+                gripper_actions = np.expand_dims(gripper_actions, axis=1)
 
         traj["actions"] = np.concatenate([movement_actions, gripper_actions], axis=1)
         return traj

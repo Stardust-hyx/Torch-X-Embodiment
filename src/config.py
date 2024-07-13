@@ -96,7 +96,7 @@ def get_args():
     # data_arg.add_argument('--sample_weights', type=str, default='[0.25,0.35,0.4]')
     data_arg.add_argument('--avg_num_traj', type=int, default=3500)
     data_arg.add_argument('--num_workers', type=int, default=4)
-    data_arg.add_argument('--relabel_actions', type=str2bool, default=True)
+    data_arg.add_argument('--normalize_type', type=str, default='normal', choices=['normal', 'bounds_q99'])
     data_arg.add_argument('--goal_relabeling_strategy', type=str, default='last_k_uniform')
     data_arg.add_argument('--goal_relabel_offset', type=int, default=8)
     data_arg.add_argument('--goal_relabel_future_step', type=int, default=2)
